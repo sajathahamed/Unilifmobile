@@ -1,0 +1,261 @@
+-- =========================================
+-- University Life Management System
+-- Supabase / PostgreSQL Compatible Schema
+-- =========================================
+
+
+-- ============
+-- ENUM TYPES
+-- ============
+CREATE TYPE user_role AS ENUM (
+  'student','lecturer','admin','vendor','delivery','super_admin'
+);
+
+CREATE TYPE shop_status AS ENUM ('open','closed');
+
+
+-- =====================
+-- UNIVERSITY & USERS
+-- =====================
+CREATE TABLE universities (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  city VARCHAR(100),
+  is_active BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(100) UNIQUE NOT NULL,
+  role user_role NOT NULL,
+  uni_id INT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (uni_id) REFERENCES universities(id)
+);
+
+
+-- =====================
+-- ACADEMIC MODULE
+-- =====================
+CREATE TABLE courses (
+  id SERIAL PRIMARY KEY,
+  course_code VARCHAR(50),
+  course_name VARCHAR(100),
+  lecturer VARCHAR(100),
+  colour VARCHAR(20)
+);
+
+CREATE TABLE timetable (
+  id SERIAL PRIMARY KEY,
+  student_id INT,
+  course_id INT,
+  day_of_week VARCHAR(20),
+  start_time TIME,
+  end_time TIME,
+  location VARCHAR(100),
+  FOREIGN KEY (student_id) REFERENCES users(id),
+  FOREIGN KEY (course_id) REFERENCES courses(id)
+);
+
+
+-- =====================
+-- SHOP MODULE
+-- =====================
+CREATE TABLE shops (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100),
+  owner_id INT,
+  shop_type VARCHAR(50),
+  status shop_status,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_id) REFERENCES users(id)
+);
+
+CREATE TABLE shop_orders (
+  id SERIAL PRIMARY KEY,
+  shop_id INT,
+  student_id INT,
+  total_amount DECIMAL(10,2),
+  status VARCHAR(50),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (shop_id) REFERENCES shops(id),
+  FOREIGN KEY (student_id) REFERENCES users(id)
+);
+
+CREATE TABLE shop_earnings (
+  id SERIAL PRIMARY KEY,
+  shop_id INT,
+  order_id INT,
+  amount DECIMAL(10,2),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (shop_id) REFERENCES shops(id),
+  FOREIGN KEY (order_id) REFERENCES shop_orders(id)
+);
+
+
+-- =====================
+-- DELIVERY MODULE
+-- =====================
+CREATE TABLE delivery_agents (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100),
+  phone VARCHAR(20),
+  is_available BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE deliveries (
+  id SERIAL PRIMARY KEY,
+  order_id INT,
+  delivery_agent_id INT,
+  status VARCHAR(50),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (order_id) REFERENCES shop_orders(id),
+  FOREIGN KEY (delivery_agent_id) REFERENCES delivery_agents(id)
+);
+
+
+-- =====================
+-- FOOD MODULE
+-- =====================
+CREATE TABLE vendors (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100),
+  type VARCHAR(50),
+  location VARCHAR(100),
+  is_open BOOLEAN DEFAULT TRUE,
+  rating DECIMAL(2,1),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE food_categories (
+  id SERIAL PRIMARY KEY,
+  vendor_id INT,
+  name VARCHAR(100),
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id)
+);
+
+CREATE TABLE food_items (
+  id SERIAL PRIMARY KEY,
+  vendor_id INT,
+  category_id INT,
+  name VARCHAR(100),
+  price DECIMAL(10,2),
+  image_url VARCHAR(255),
+  is_available BOOLEAN DEFAULT TRUE,
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id),
+  FOREIGN KEY (category_id) REFERENCES food_categories(id)
+);
+
+CREATE TABLE food_orders (
+  id SERIAL PRIMARY KEY,
+  student_id INT,
+  vendor_id INT,
+  total DECIMAL(10,2),
+  status VARCHAR(50),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (student_id) REFERENCES users(id),
+  FOREIGN KEY (vendor_id) REFERENCES vendors(id)
+);
+
+CREATE TABLE food_order_items (
+  id SERIAL PRIMARY KEY,
+  order_id INT,
+  food_id INT,
+  qty INT,
+  price DECIMAL(10,2),
+  FOREIGN KEY (order_id) REFERENCES food_orders(id),
+  FOREIGN KEY (food_id) REFERENCES food_items(id)
+);
+
+
+-- =====================
+-- LAUNDRY MODULE
+-- =====================
+CREATE TABLE laundry_services (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100),
+  location VARCHAR(100),
+  price_per_kg DECIMAL(10,2),
+  price_per_item DECIMAL(10,2),
+  pickup_available BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE laundry_orders (
+  id SERIAL PRIMARY KEY,
+  student_id INT,
+  laundry_service_id INT,
+  order_type VARCHAR(50),
+  total_price DECIMAL(10,2),
+  status VARCHAR(50),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (student_id) REFERENCES users(id),
+  FOREIGN KEY (laundry_service_id) REFERENCES laundry_services(id)
+);
+
+
+-- =====================
+-- TOURISM / TRIPS MODULE
+-- =====================
+CREATE TABLE trips (
+  id SERIAL PRIMARY KEY,
+  destination VARCHAR(100),
+  days INT,
+  estimated_budget DECIMAL(10,2),
+  created_by INT,
+  status VARCHAR(50),
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE TABLE trip_itinerary (
+  id SERIAL PRIMARY KEY,
+  trip_id INT,
+  day_number INT,
+  activity TEXT,
+  FOREIGN KEY (trip_id) REFERENCES trips(id)
+);
+
+CREATE TABLE trip_members (
+  id SERIAL PRIMARY KEY,
+  trip_id INT,
+  student_id INT,
+  joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (trip_id) REFERENCES trips(id),
+  FOREIGN KEY (student_id) REFERENCES users(id)
+);
+
+
+-- =====================
+-- NOTIFICATIONS
+-- =====================
+CREATE TABLE notifications (
+  id SERIAL PRIMARY KEY,
+  user_id INT,
+  title VARCHAR(100),
+  message TEXT,
+  is_read BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+
+-- =====================
+-- PLATFORM STATS
+-- =====================
+CREATE TABLE platform_stats (
+  id SERIAL PRIMARY KEY,
+  total_users INT,
+  total_orders INT,
+  total_revenue DECIMAL(12,2),
+  generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+-- =====================
+-- GEMINI AI ENHANCEMENTS
+-- =====================
+
+-- For Laundry AI detections
+ALTER TABLE laundry_orders ADD COLUMN items_json JSONB;
+ALTER TABLE laundry_orders ADD COLUMN image_url TEXT;
+
+-- For Trip AI recommendations
+ALTER TABLE trips ADD COLUMN ai_suggestions TEXT;

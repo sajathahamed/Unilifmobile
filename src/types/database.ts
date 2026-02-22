@@ -136,6 +136,8 @@ export interface LaundryOrder {
   order_type: string | null;
   total_price: number | null;
   status: string | null;
+  items_json?: Record<string, number> | null;
+  image_url?: string | null;
   created_at: string;
 }
 
@@ -146,6 +148,7 @@ export interface Trip {
   estimated_budget: number | null;
   created_by: number | null;
   status: string | null;
+  ai_suggestions?: string | null;
 }
 
 export interface TripItinerary {

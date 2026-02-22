@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '@app-types/index';
 import { useTheme } from '@theme/index';
 import { Button } from '@components/ui/Button';
 import { Input } from '@components/ui/Input';
+import { ResponsiveContainer } from '@components/layout/ResponsiveContainer';
 import { useAuth } from '@context/AuthContext';
 import { useToast } from '@hooks/useToast';
 
@@ -30,33 +31,38 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({ navi
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: theme.colors.background }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 20}
     >
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
-        <View style={styles.container}>
-          <Text style={[styles.title, { color: theme.colors.text }]}>Reset password</Text>
-          <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>We will send you a reset link</Text>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <ResponsiveContainer>
+          <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+            <View style={styles.container}>
+              <Text style={[styles.title, { color: theme.colors.text }]}>Reset password</Text>
+              <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>We will send you a reset link</Text>
 
-          <View style={{ height: 24 }} />
-          <Input
-            label="Email"
-            placeholder="you@example.com"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            value={email}
-            onChangeText={setEmail}
-          />
+              <View style={{ height: 24 }} />
+              <Input
+                label="Email"
+                placeholder="you@example.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={email}
+                onChangeText={setEmail}
+              />
 
-          <Button label="Send reset link" onPress={handleReset} loading={loading} />
+              <Button label="Send reset link" onPress={handleReset} loading={loading} />
 
-          <View style={styles.footerRow}>
-            <Text style={{ color: theme.colors.textSecondary }}>Remembered?</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-              <Text style={{ color: theme.colors.primary, fontWeight: '700', marginLeft: 6 }}>Back to login</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </ScrollView>
+              <View style={styles.footerRow}>
+                <Text style={{ color: theme.colors.textSecondary }}>Remembered?</Text>
+                <TouchableOpacity onPress={() => navigation.navigate('Login')} style={{ padding: 8 }}>
+                  <Text style={{ color: theme.colors.primary, fontWeight: '700' }}>Back to login</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </ResponsiveContainer>
+      </TouchableWithoutFeedback>
     </KeyboardAvoidingView>
   );
 };

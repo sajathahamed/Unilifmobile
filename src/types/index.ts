@@ -36,13 +36,14 @@ export type AppStackParamList = {
   MainTabs: undefined;
   FoodMenu: { vendorId: number; vendorName: string };
   Cart: undefined;
+  OrderTracking: { orderId: number };
 };
 
 export type MainTabParamList = {
   Home: undefined;
-  Timetable: undefined;
   Food: undefined;
   Laundry: undefined;
+  Planner: undefined;
   Profile: undefined;
 };
 
@@ -54,6 +55,16 @@ export interface CartItem {
   vendorId: number;
   vendorName: string;
   imageUrl?: string;
+}
+
+export interface CartContextType {
+  cartItems: CartItem[];
+  addItem: (item: Omit<CartItem, 'quantity'>) => void;
+  removeItem: (id: number) => void;
+  updateQuantity: (id: number, quantity: number) => void;
+  clearCart: () => void;
+  totalAmount: number;
+  totalCount: number;
 }
 
 export interface ToastMessage {

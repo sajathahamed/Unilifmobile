@@ -1,75 +1,30 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
-import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
 import { Database, UserRole } from '../types/database';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 
-// Secure storage adapter for sensitive data
-const ExpoSecureStoreAdapter = {
-  getItem: async (key: string): Promise<string | null> => {
-    try {
-      if (Platform.OS === 'web') {
-        return await AsyncStorage.getItem(key);
-      }
-      return await SecureStore.getItemAsync(key);
-    } catch (error) {
-      console.error('Error getting item from secure store:', error);
-      return null;
-    }
-  },
-  setItem: async (key: string, value: string): Promise<void> => {
-    try {
-      if (Platform.OS === 'web') {
-        await AsyncStorage.setItem(key, value);
-      } else {
-        await SecureStore.setItemAsync(key, value);
-      }
-    } catch (error) {
-      console.error('Error setting item in secure store:', error);
-    }
-  },
-  removeItem: async (key: string): Promise<void> => {
-    try {
-      if (Platform.OS === 'web') {
-        await AsyncStorage.removeItem(key);
-      } else {
-        await SecureStore.deleteItemAsync(key);
-      }
-    } catch (error) {
-      console.error('Error removing item from secure store:', error);
-    }
-  },
-};
-
+// Use AsyncStorage — SecureStore has a 2048-byte limit which JWT sessions exceed
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: ExpoSecureStoreAdapter,
+    storage: AsyncStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
   },
 });
 
-// Auth helper functions
 export const signInWithEmail = async (email: string, password: string) => {
-  console.log('Attempting sign in with email:', email);
-  console.log('Supabase URL:', supabaseUrl);
-  console.log('Supabase Key exists:', !!supabaseAnonKey);
-  
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
   });
-  
+
   if (error) {
-    console.error('Sign in error:', error.message, error);
-  } else {
-    console.log('Sign in success, user:', data?.user?.email);
+    console.error('Sign in error:', error.message);
   }
-  
+
   return { data, error };
 };
 

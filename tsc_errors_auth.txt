@@ -1,0 +1,16 @@
+﻿node_modules/expo/tsconfig.base.json(10,15): error TS6046: Argument for '--module' option must be: 'none', 'commonjs', 'amd', 'system', 'umd', 'es6', 'es2015', 'es2020', 'es2022', 'esnext', 'node16', 'nodenext'.
+src/screens/auth/SignupScreen.tsx(40,6): error TS17008: JSX element 'KeyboardAvoidingView' has no corresponding closing tag.
+src/screens/auth/SignupScreen.tsx(45,8): error TS17008: JSX element 'TouchableWithoutFeedback' has no corresponding closing tag.
+src/screens/auth/SignupScreen.tsx(88,11): error TS17002: Expected corresponding JSX closing tag for 'ResponsiveContainer'.
+src/screens/auth/SignupScreen.tsx(90,1): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/screens/auth/SignupScreen.tsx(93,20): error TS1005: '}' expected.
+src/screens/auth/SignupScreen.tsx(94,15): error TS1005: '}' expected.
+src/screens/auth/SignupScreen.tsx(97,3): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/screens/auth/SignupScreen.tsx(99,19): error TS1005: '}' expected.
+src/screens/auth/SignupScreen.tsx(101,3): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/screens/auth/SignupScreen.tsx(103,19): error TS1005: '}' expected.
+src/screens/auth/SignupScreen.tsx(105,3): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/screens/auth/SignupScreen.tsx(107,24): error TS1005: '}' expected.
+src/screens/auth/SignupScreen.tsx(111,3): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/screens/auth/SignupScreen.tsx(112,1): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/screens/auth/SignupScreen.tsx(113,1): error TS1005: '</' expected.

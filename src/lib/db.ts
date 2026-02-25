@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, isSupabaseConfigured } from './supabase';
 
 // ── Timetable ─────────────────────────────────────────────
 export const getTimetableForStudent = async (studentId: number, dayOfWeek?: string) => {
@@ -93,7 +93,18 @@ export const getActiveFoodOrderForStudent = async (studentId: number) => {
 
 // ── Laundry ───────────────────────────────────────────────
 export const getLaundryServices = async () => {
-    const { data, error } = await supabase.from('laundry_services').select('*');
+    if (!isSupabaseConfigured) {
+        const err = new Error('Supabase client not configured. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.');
+        console.error(err.message);
+        return { data: null, error: err as any };
+    }
+
+    const res = await supabase.from('laundry_services').select('*');
+    console.log('getLaundryServices raw result:', JSON.stringify(res, null, 2));
+
+    const { data, error } = res;
+    if (error) console.error('getLaundryServices error:', error);
+    else console.log(`getLaundryServices: fetched ${Array.isArray(data) ? data.length : 0} services`);
     return { data, error };
 };
 
@@ -139,6 +150,18 @@ export const createLaundryOrder = async (
         })
         .select()
         .single();
+
+    // Create a simple in-app notification for the student so they can see the order
+    try {
+        if (data && !error) {
+            const noteTitle = 'Laundry Order Placed';
+            const noteMessage = `Your laundry order (ID: ${data.id}) with ${laundryServiceId
+                } has been placed. Total: RM ${Number(totalPrice).toFixed(2)}.`;
+            await supabase.from('notifications').insert({ user_id: studentId, title: noteTitle, message: noteMessage });
+        }
+    } catch (e) {
+        console.error('Failed to create notification for laundry order:', e);
+    }
     return { data, error };
 };
 

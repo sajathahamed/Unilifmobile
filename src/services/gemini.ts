@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const API_KEY = "AIzaSyBQZ2EeJFSE_XNsK8dPDH4XBCwysUt8TsA";
+// Prefer environment variable; fallback to provided key if not set.
+const API_KEY = process.env.EXPO_PUBLIC_GENAI_API_KEY || 'AIzaSyCRMIHGzZDHuT1Tw_1jduYGWIZwYquTobE';
 const genAI = new GoogleGenerativeAI(API_KEY);
 
 /**
@@ -15,7 +16,9 @@ export const detectClothing = async (base64Data: string, mimeType: string = "ima
             ? base64Data.split("base64,")[1]
             : base64Data;
 
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const DEFAULT_MODEL = "gemini-2.0-flash";
+
+        const model = genAI.getGenerativeModel({ model: DEFAULT_MODEL });
 
         const prompt = `
       Analyze this image of laundry/clothing. 
@@ -31,7 +34,7 @@ export const detectClothing = async (base64Data: string, mimeType: string = "ima
             prompt,
             {
                 inlineData: {
-                    data: base64Data,
+                    data: cleanBase64,
                     mimeType,
                 },
             },
@@ -46,6 +49,14 @@ export const detectClothing = async (base64Data: string, mimeType: string = "ima
         return JSON.parse(jsonString) as Record<string, number>;
     } catch (error: any) {
         console.error("Gemini detectClothing Error:", error);
+
+        // Handle Quota Exceeded (429)
+        if (error.message?.includes("429") || error.status === 429) {
+            const quotaError = new Error("AI Quota Exceeded. Please add items manually.");
+            (quotaError as any).status = 429;
+            throw quotaError;
+        }
+
         if (error.response) {
             console.error("Gemini Error Response:", await error.response.text());
         }
@@ -58,7 +69,7 @@ export const detectClothing = async (base64Data: string, mimeType: string = "ima
  */
 export const generateItinerary = async (destination: string, days: number, budget: number) => {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
         const prompt = `
       Create a travel itinerary for a trip to ${destination}.

@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // Prefer environment variable; fallback to provided key if not set.
-const API_KEY = process.env.EXPO_PUBLIC_GENAI_API_KEY || 'AIzaSyCRMIHGzZDHuT1Tw_1jduYGWIZwYquTobE';
+const API_KEY = process.env.GENAI_API_KEY || 'AIzaSyAm4kBgwFmITj3Glwkxlv4xEU8Vt5GRhq4';
 const genAI = new GoogleGenerativeAI(API_KEY);
 
 /**
@@ -16,9 +16,35 @@ export const detectClothing = async (base64Data: string, mimeType: string = "ima
             ? base64Data.split("base64,")[1]
             : base64Data;
 
-        const DEFAULT_MODEL = "gemini-2.0-flash";
+        const DEFAULT_MODEL = process.env.GENAI_MODEL || "gemini-1.5-flash";
 
-        const model = genAI.getGenerativeModel({ model: DEFAULT_MODEL });
+        const resolveModel = async (modelName: string) => {
+            try {
+                return genAI.getGenerativeModel({ model: modelName });
+            } catch (err) {
+                // Try to discover a supported model via listModels if available
+                try {
+                    if (typeof (genAI as any).listModels === 'function') {
+                        const list = await (genAI as any).listModels();
+                        // list may be { models: [...] } or an array depending on SDK version
+                        const models = list?.models ?? list;
+                        const candidate = (models || []).find((m: any) => {
+                            const name = m?.name || m;
+                            if (!name) return false;
+                            // prefer any gemini model that contains 'gemini' in the name
+                            return String(name).toLowerCase().includes('gemini');
+                        });
+                        const pick = candidate?.name ?? candidate;
+                        if (pick) return genAI.getGenerativeModel({ model: pick });
+                    }
+                } catch (e) {
+                    // ignore discovery errors, rethrow original
+                }
+                throw err;
+            }
+        };
+
+        const model = await resolveModel(DEFAULT_MODEL);
 
         const prompt = `
       Analyze this image of laundry/clothing. 
@@ -49,14 +75,6 @@ export const detectClothing = async (base64Data: string, mimeType: string = "ima
         return JSON.parse(jsonString) as Record<string, number>;
     } catch (error: any) {
         console.error("Gemini detectClothing Error:", error);
-
-        // Handle Quota Exceeded (429)
-        if (error.message?.includes("429") || error.status === 429) {
-            const quotaError = new Error("AI Quota Exceeded. Please add items manually.");
-            (quotaError as any).status = 429;
-            throw quotaError;
-        }
-
         if (error.response) {
             console.error("Gemini Error Response:", await error.response.text());
         }
@@ -69,7 +87,7 @@ export const detectClothing = async (base64Data: string, mimeType: string = "ima
  */
 export const generateItinerary = async (destination: string, days: number, budget: number) => {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
         const prompt = `
       Create a travel itinerary for a trip to ${destination}.

@@ -99,10 +99,7 @@ export const getLaundryServices = async () => {
         return { data: null, error: err as any };
     }
 
-    const res = await supabase.from('laundry_services').select('*');
-    console.log('getLaundryServices raw result:', JSON.stringify(res, null, 2));
-
-    const { data, error } = res;
+    const { data, error } = await supabase.from('laundry_services').select('*');
     if (error) console.error('getLaundryServices error:', error);
     else console.log(`getLaundryServices: fetched ${Array.isArray(data) ? data.length : 0} services`);
     return { data, error };
@@ -155,8 +152,9 @@ export const createLaundryOrder = async (
     try {
         if (data && !error) {
             const noteTitle = 'Laundry Order Placed';
-            const noteMessage = `Your laundry order (ID: ${data.id}) with ${laundryServiceId
-                } has been placed. Total: RM ${Number(totalPrice).toFixed(2)}.`;
+            const noteMessage = `Your laundry order (ID: ${data.id}) with ${
+                laundryServiceId
+            } has been placed. Total: RM ${Number(totalPrice).toFixed(2)}.`;
             await supabase.from('notifications').insert({ user_id: studentId, title: noteTitle, message: noteMessage });
         }
     } catch (e) {

@@ -26,7 +26,7 @@ import {
 import { LaundryOrder, LaundryService } from '@app-types/database';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { detectClothing } from '@services/gemini';
+import { detectClothing } from '@services/openai';
 
 const STATUS_VARIANT: Record<string, 'primary' | 'success' | 'warning' | 'error'> = {
     pending: 'warning',
@@ -35,6 +35,25 @@ const STATUS_VARIANT: Record<string, 'primary' | 'success' | 'warning' | 'error'
     completed: 'success',
     cancelled: 'error',
 };
+
+// Predefined clothing categories for manual selection
+const CLOTHING_OPTIONS = [
+    { name: 'T-shirt', icon: 'shirt-outline' },
+    { name: 'Shirt', icon: 'shirt-outline' },
+    { name: 'Pants', icon: 'resize-outline' },
+    { name: 'Jeans', icon: 'resize-outline' },
+    { name: 'Shorts', icon: 'cut-outline' },
+    { name: 'Dress', icon: 'woman-outline' },
+    { name: 'Skirt', icon: 'woman-outline' },
+    { name: 'Jacket', icon: 'snow-outline' },
+    { name: 'Hoodie', icon: 'snow-outline' },
+    { name: 'Sweater', icon: 'snow-outline' },
+    { name: 'Socks', icon: 'footsteps-outline' },
+    { name: 'Underwear', icon: 'square-outline' },
+    { name: 'Towel', icon: 'water-outline' },
+    { name: 'Bedsheet', icon: 'bed-outline' },
+    { name: 'Other', icon: 'ellipsis-horizontal-outline' },
+] as const;
 
 export const LaundryScreen: React.FC = () => {
     const { theme } = useTheme();
@@ -50,6 +69,7 @@ export const LaundryScreen: React.FC = () => {
     // AI Detection States
     const [detecting, setDetecting] = useState(false);
     const [detectedItems, setDetectedItems] = useState<Record<string, number>>({});
+    const [showItemPicker, setShowItemPicker] = useState(false);
 
     const fetchData = useCallback(async () => {
         if (!userProfile?.id) { setLoading(false); return; }
@@ -86,20 +106,37 @@ export const LaundryScreen: React.FC = () => {
             }
 
             const result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                quality: 0.8,
+                mediaTypes: ['images'],
+                quality: 0.7,
                 base64: true,
             });
 
             if (!result.canceled && result.assets[0].base64) {
                 setDetecting(true);
-                const items = await detectClothing(result.assets[0].base64);
-                setDetectedItems(items);
+                try {
+                    const items = await detectClothing(result.assets[0].base64);
+                    if (Object.keys(items).length > 0) {
+                        setDetectedItems(prev => {
+                            // Merge with existing items
+                            const merged = { ...prev };
+                            for (const [key, count] of Object.entries(items)) {
+                                merged[key] = (merged[key] || 0) + count;
+                            }
+                            return merged;
+                        });
+                        Alert.alert('Success', `Detected ${Object.keys(items).length} item type(s)! You can adjust the counts.`);
+                    } else {
+                        Alert.alert('No Items Detected', 'Could not identify specific items. Please add manually.');
+                    }
+                } catch (err: any) {
+                    console.error('Detection error:', err);
+                    Alert.alert('Detection Failed', `${err.message || 'Unknown error'}. Please add items manually.`);
+                }
                 setDetecting(false);
             }
         } catch (error: any) {
             console.error('LaundryScreen pickAndProcessImage Error:', error);
-            Alert.alert('Error', `AI detection failed: ${error.message || 'Unknown error'}. You can add items manually.`);
+            Alert.alert('Error', `Image processing failed. You can add items manually.`);
             setDetecting(false);
         }
     };
@@ -146,6 +183,14 @@ export const LaundryScreen: React.FC = () => {
             delete next[key];
             return next;
         });
+    };
+
+    const addManualItem = (itemName: string) => {
+        setDetectedItems(prev => ({
+            ...prev,
+            [itemName]: (prev[itemName] || 0) + 1,
+        }));
+        setShowItemPicker(false);
     };
 
     if (loading) {
@@ -262,10 +307,21 @@ export const LaundryScreen: React.FC = () => {
                             )}
 
                             <Text style={[styles.label, { color: theme.colors.textSecondary, marginTop: 12 }]}>
-                                AI Clothing Detection (Optional)
+                                Add Clothing Items
                             </Text>
+                            
+                            {/* Manual Add Button */}
                             <TouchableOpacity
-                                style={[styles.uploadBtn, { borderColor: theme.colors.primary, backgroundColor: theme.colors.primary + '08' }]}
+                                style={[styles.manualAddBtn, { backgroundColor: theme.colors.primary }]}
+                                onPress={() => setShowItemPicker(true)}
+                            >
+                                <Ionicons name="add-circle-outline" size={22} color="#fff" />
+                                <Text style={styles.manualAddText}>Add Items Manually</Text>
+                            </TouchableOpacity>
+
+                            {/* Optional: AI Detection */}
+                            <TouchableOpacity
+                                style={[styles.uploadBtn, { borderColor: theme.colors.border, backgroundColor: theme.colors.backgroundSecondary }]}
                                 onPress={pickAndProcessImage}
                                 disabled={detecting}
                             >
@@ -273,28 +329,40 @@ export const LaundryScreen: React.FC = () => {
                                     <ActivityIndicator size="small" color={theme.colors.primary} />
                                 ) : (
                                     <>
-                                        <Ionicons name="camera-outline" size={24} color={theme.colors.primary} />
-                                        <Text style={{ color: theme.colors.primary, fontWeight: '600' }}>
-                                            {Object.keys(detectedItems).length > 0 ? 'Retake Photo' : 'Upload & Detect Items'}
+                                        <Ionicons name="camera-outline" size={22} color={theme.colors.textSecondary} />
+                                        <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>
+                                            Or try photo scan (experimental)
                                         </Text>
                                     </>
                                 )}
                             </TouchableOpacity>
 
                             {Object.keys(detectedItems).length > 0 && (
-                                <View style={styles.detectedList}>
-                                    <Text style={[styles.detectedTitle, { color: theme.colors.text }]}>Detected Items:</Text>
+                                <View style={[styles.detectedList, { backgroundColor: theme.colors.backgroundSecondary }]}>
+                                    <Text style={[styles.detectedTitle, { color: theme.colors.text }]}>Your Items:</Text>
                                     {Object.entries(detectedItems).map(([key, count]) => (
                                         <View key={key} style={styles.detectRow}>
                                             <Text style={[styles.detectLabel, { color: theme.colors.text }]}>{key}</Text>
+                                            <TouchableOpacity 
+                                                onPress={() => updateCount(key, String(Math.max(0, count - 1)))}
+                                                style={[styles.countBtn, { backgroundColor: theme.colors.border }]}
+                                            >
+                                                <Ionicons name="remove" size={16} color={theme.colors.text} />
+                                            </TouchableOpacity>
                                             <TextInput
                                                 value={String(count)}
                                                 onChangeText={(val) => updateCount(key, val)}
                                                 keyboardType="number-pad"
                                                 style={[styles.miniInput, { color: theme.colors.text, borderColor: theme.colors.border }]}
                                             />
-                                            <TouchableOpacity onPress={() => removeItem(key)}>
-                                                <Ionicons name="close-circle" size={20} color={theme.colors.error} />
+                                            <TouchableOpacity 
+                                                onPress={() => updateCount(key, String(count + 1))}
+                                                style={[styles.countBtn, { backgroundColor: theme.colors.primary }]}
+                                            >
+                                                <Ionicons name="add" size={16} color="#fff" />
+                                            </TouchableOpacity>
+                                            <TouchableOpacity onPress={() => removeItem(key)} style={{ marginLeft: 4 }}>
+                                                <Ionicons name="trash-outline" size={18} color={theme.colors.error} />
                                             </TouchableOpacity>
                                         </View>
                                     ))}
@@ -340,6 +408,45 @@ export const LaundryScreen: React.FC = () => {
                     </View>
                 </View>
             </Modal>
+
+            {/* Item Picker Modal */}
+            <Modal visible={showItemPicker} transparent animationType="fade">
+                <TouchableOpacity 
+                    style={styles.pickerOverlay} 
+                    activeOpacity={1} 
+                    onPress={() => setShowItemPicker(false)}
+                >
+                    <View style={[styles.pickerModal, { backgroundColor: theme.colors.surface }]}>
+                        <Text style={[styles.modalTitle, { color: theme.colors.text, marginBottom: 12 }]}>
+                            Select Item Type
+                        </Text>
+                        <View style={styles.pickerGrid}>
+                            {CLOTHING_OPTIONS.map((item) => (
+                                <TouchableOpacity
+                                    key={item.name}
+                                    style={[styles.pickerItem, { backgroundColor: theme.colors.backgroundSecondary }]}
+                                    onPress={() => addManualItem(item.name)}
+                                >
+                                    <Ionicons 
+                                        name={item.icon as any} 
+                                        size={24} 
+                                        color={theme.colors.primary} 
+                                    />
+                                    <Text style={[styles.pickerItemText, { color: theme.colors.text }]}>
+                                        {item.name}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                        <TouchableOpacity 
+                            style={[styles.cancelPickerBtn, { borderColor: theme.colors.border }]}
+                            onPress={() => setShowItemPicker(false)}
+                        >
+                            <Text style={{ color: theme.colors.textSecondary }}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
+            </Modal>
         </SafeAreaView>
     );
 };
@@ -368,6 +475,7 @@ const styles = StyleSheet.create({
     flex: { flex: 1 },
     serviceName: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
     overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
     modal: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '90%' },
     modalTitle: { fontSize: 20, fontWeight: '800', marginBottom: 16 },
     label: { fontSize: 13, fontWeight: '600', marginBottom: 8 },
@@ -377,27 +485,46 @@ const styles = StyleSheet.create({
         padding: 12,
         marginBottom: 8,
     },
-    uploadBtn: {
-        height: 56,
-        borderWidth: 2,
-        borderStyle: 'dashed',
+    manualAddBtn: {
+        height: 48,
         borderRadius: 12,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 10,
+        gap: 8,
+        marginBottom: 8,
+    },
+    manualAddText: {
+        color: '#fff',
+        fontWeight: '700',
+        fontSize: 15,
+    },
+    uploadBtn: {
+        height: 44,
+        borderWidth: 1,
+        borderRadius: 10,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
         marginBottom: 12,
     },
     detectedList: {
-        backgroundColor: '#f8fafc',
         borderRadius: 12,
         padding: 12,
         marginBottom: 16,
     },
-    detectedTitle: { fontSize: 14, fontWeight: '700', marginBottom: 8 },
-    detectRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 10 },
-    detectLabel: { flex: 1, fontSize: 14 },
-    miniInput: { width: 50, height: 32, borderWidth: 1, borderRadius: 6, textAlign: 'center', padding: 0 },
+    detectedTitle: { fontSize: 14, fontWeight: '700', marginBottom: 10 },
+    detectRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 },
+    detectLabel: { flex: 1, fontSize: 14, fontWeight: '500' },
+    countBtn: {
+        width: 28,
+        height: 28,
+        borderRadius: 6,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    miniInput: { width: 44, height: 32, borderWidth: 1, borderRadius: 6, textAlign: 'center', padding: 0, fontSize: 15, fontWeight: '600' },
     itemsBadgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
     minorBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
     input: {
@@ -410,4 +537,38 @@ const styles = StyleSheet.create({
     },
     totalPreview: { fontSize: 16, fontWeight: '700', marginBottom: 16 },
     modalBtns: { flexDirection: 'row', gap: 12, marginTop: 8 },
+    // Item Picker Modal Styles
+    pickerModal: {
+        margin: 20,
+        borderRadius: 20,
+        padding: 20,
+        maxHeight: '80%',
+    },
+    pickerGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+        justifyContent: 'center',
+    },
+    pickerItem: {
+        width: 90,
+        height: 80,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+    },
+    pickerItemText: {
+        fontSize: 11,
+        fontWeight: '600',
+        textAlign: 'center',
+    },
+    cancelPickerBtn: {
+        marginTop: 16,
+        height: 44,
+        borderWidth: 1,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
 }); 

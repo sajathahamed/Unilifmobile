@@ -20,7 +20,7 @@ import { useAuth } from '@context/AuthContext';
 import { getTripsForUser, createTrip, updateTripWithAI } from '@lib/index';
 import { Trip } from '@app-types/database';
 import { Ionicons } from '@expo/vector-icons';
-import { generateItinerary } from '@services/gemini';
+import { generateItinerary } from '@services/openai';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
 
 // Replace with your Google Maps API Key

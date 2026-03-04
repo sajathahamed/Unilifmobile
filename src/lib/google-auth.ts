@@ -8,14 +8,21 @@ import { Database, UserRole } from '../types/database';
 
 WebBrowser.maybeCompleteAuthSession();
 
-// Google OAuth configuration
-const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '';
+// Google OAuth configuration - Using the provided Client ID
+const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '303629592240-2hhtu0u4clini04eopj4bf8sah5plpvn.apps.googleusercontent.com';
 
 // Create redirect URI for OAuth
 const redirectUri = makeRedirectUri({
   scheme: 'unilife',
   path: 'auth/callback',
 });
+
+// Google OAuth Discovery document
+const discovery = {
+  authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+  tokenEndpoint: 'https://oauth2.googleapis.com/token',
+  revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
+};
 
 // Generate random string for PKCE
 const generateRandomString = async (length: number): Promise<string> => {
@@ -26,7 +33,7 @@ const generateRandomString = async (length: number): Promise<string> => {
     .slice(0, length);
 };
 
-// Google Sign-In using Supabase OAuth
+// Google Sign-In using Expo Auth Session with provided Client ID
 export const signInWithGoogle = async () => {
   try {
     // Generate PKCE verifier

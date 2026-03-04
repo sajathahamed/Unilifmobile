@@ -220,3 +220,129 @@ export const updateTripWithAI = async (tripId: number, aiSuggestions: string) =>
         .single();
     return { data, error };
 };
+
+// ── Trip Plans (Enhanced) ─────────────────────────────────
+export interface TripPlanInsert {
+    user_id: number;
+    destination: string;
+    days: number;
+    budget_lkr: number;
+    travelers: number;
+    room_type: string;
+    travel_type?: string;
+    transport_mode?: string;
+    food_preference?: string;
+    summary?: string;
+    itinerary_json?: any;
+    hotel_details_json?: any;
+    food_places_json?: any;
+    transport_details_json?: any;
+    cost_breakdown_json?: any;
+    travel_tips_json?: any;
+    total_cost_lkr: number;
+    total_cost_usd?: number;
+    budget_sufficient?: boolean;
+    budget_message?: string;
+}
+
+export const createTripPlan = async (tripPlan: TripPlanInsert) => {
+    const { data, error } = await supabase
+        .from('trip_plans')
+        .insert({
+            ...tripPlan,
+            status: 'active',
+        })
+        .select()
+        .single();
+    return { data, error };
+};
+
+export const getTripPlansForUser = async (userId: number, status: 'active' | 'void' | 'all' = 'active') => {
+    let query = supabase
+        .from('trip_plans')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+    if (status !== 'all') {
+        query = query.eq('status', status);
+    }
+
+    const { data, error } = await query;
+    return { data, error };
+};
+
+export const getTripPlanById = async (tripPlanId: number) => {
+    const { data, error } = await supabase
+        .from('trip_plans')
+        .select('*')
+        .eq('id', tripPlanId)
+        .single();
+    return { data, error };
+};
+
+export const voidTripPlan = async (tripPlanId: number, reason?: string) => {
+    const { data, error } = await supabase
+        .from('trip_plans')
+        .update({
+            status: 'void',
+            voided_at: new Date().toISOString(),
+            void_reason: reason || 'Voided by user',
+        })
+        .eq('id', tripPlanId)
+        .select()
+        .single();
+    return { data, error };
+};
+
+export const getVoidedTripPlans = async (userId: number) => {
+    const { data, error } = await supabase
+        .from('trip_plans')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'void')
+        .order('voided_at', { ascending: false });
+    return { data, error };
+};
+
+// ── User with Google Auth ─────────────────────────────────
+export const upsertUserGoogle = async (email: string, name: string, googleId: string, photoUrl?: string) => {
+    // First try to find existing user
+    const { data: existingUser } = await supabase
+        .from('users')
+        .select('*')
+        .or(`google_id.eq.${googleId},email.eq.${email}`)
+        .single();
+
+    if (existingUser) {
+        // Update existing user
+        const { data, error } = await supabase
+            .from('users')
+            .update({
+                name: name || existingUser.name,
+                google_id: googleId,
+                photo_url: photoUrl,
+                auth_provider: 'google',
+            })
+            .eq('id', existingUser.id)
+            .select()
+            .single();
+        return { data, error, isNewUser: false };
+    }
+
+    // Create new user
+    const { data, error } = await supabase
+        .from('users')
+        .insert({
+            name,
+            email,
+            role: 'student',
+            google_id: googleId,
+            photo_url: photoUrl,
+            auth_provider: 'google',
+        } as any)
+        .select()
+        .single();
+    return { data, error, isNewUser: true };
+};
+

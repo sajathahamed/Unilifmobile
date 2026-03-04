@@ -37,6 +37,7 @@ export type AppStackParamList = {
   FoodMenu: { vendorId: number; vendorName: string };
   Cart: undefined;
   OrderTracking: { orderId: number };
+  VoidTrips: undefined;
 };
 
 export type MainTabParamList = {

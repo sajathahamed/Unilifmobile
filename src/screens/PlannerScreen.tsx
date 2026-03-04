@@ -14,6 +14,8 @@ import {
     Dimensions,
     KeyboardAvoidingView,
     Platform,
+    Linking,
+    RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '@theme/index';
@@ -22,12 +24,15 @@ import { Button } from '@components/ui/Button';
 import { ResponsiveContainer } from '@components/layout/ResponsiveContainer';
 import { useAuth } from '@context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { generateTripPlanWithDeepSeek, TripPlanResponse, convertLKRToUSD, checkAIConnection, setAIStatusCallback, AIStatus } from '../services/deepseek';
+import { generateTripPDF, shareTripPDF, printTripPlan } from '../services/pdfGenerator';
+import { shareViaNative, shareViaWhatsApp, shareViaEmail, makePhoneCall, openBookingLink } from '../services/shareService';
+import { createTripPlan, getTripPlansForUser, voidTripPlan, TripPlanInsert } from '@lib/db';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// API Keys from environment (Frontend only - no backend needed!)
+// API Keys from environment
 const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY || '';
-const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GENAI_API_KEY || '';
 
 // Option types
 const TRAVEL_TYPES = [
@@ -37,7 +42,7 @@ const TRAVEL_TYPES = [
     { id: 'friends', label: 'Friends', icon: 'happy-outline' },
 ];
 
-const ACCOMMODATION_TYPES = [
+const ROOM_TYPES = [
     { id: 'budget', label: 'Budget', icon: 'wallet-outline' },
     { id: 'standard', label: 'Standard', icon: 'home-outline' },
     { id: 'luxury', label: 'Luxury', icon: 'diamond-outline' },
@@ -57,10 +62,11 @@ const FOOD_PREFERENCES = [
 ];
 
 const STATUS_COLORS: Record<string, string> = {
+    active: '#22C55E',
     planning: '#6366F1',
     booked: '#22C55E',
     completed: '#14B8A6',
-    cancelled: '#EF4444',
+    void: '#EF4444',
 };
 
 // Types
@@ -80,62 +86,36 @@ interface PlaceDetails {
     photoUrl?: string;
 }
 
-interface Activity {
-    time: string;
-    activity: string;
-    description?: string;
-    estimated_cost: number;
-    duration?: string;
-}
-
-interface DayPlan {
-    day: number;
-    theme?: string;
-    activities: Activity[];
-    estimated_cost: number;
-}
-
-interface TripPlan {
-    summary: string;
-    daily_plan: DayPlan[];
-    total_estimated_cost: number;
-    recommended_hotels: any[];
-    recommended_food_places: any[];
-    travel_tips: string[];
-    budget_breakdown?: Record<string, number>;
-}
-
-interface Trip {
+interface StoredTripPlan {
     id: number;
     destination: string;
-    place_id?: string;
-    latitude?: number;
-    longitude?: number;
-    duration: number;
-    budget: number;
-    travel_type?: string;
-    accommodation_type?: string;
+    days: number;
+    travelers: number;
+    budget_lkr: number;
+    total_cost_lkr: number;
+    room_type: string;
+    travel_type: string;
     transport_mode?: string;
     food_preference?: string;
-    total_estimated_cost?: number;
-    status?: string;
-    ai_summary?: string;
-    trip_plan?: TripPlan;
-    created_at?: string;
+    summary: string;
+    itinerary_json: any;
+    hotel_details_json: any;
+    food_places_json: any;
+    transport_details_json: any;
+    cost_breakdown_json: any;
+    travel_tips_json: string[];
+    budget_sufficient: boolean;
+    budget_message?: string;
+    status: string;
+    created_at: string;
 }
 
 // ============================================
-// DIRECT API CALLS (No Backend Required!)
+// DIRECT API CALLS
 // ============================================
 
-/**
- * Search places using Google Places Autocomplete API
- */
 async function searchPlacesAPI(query: string): Promise<PlacePrediction[]> {
-    if (!GOOGLE_PLACES_API_KEY) {
-        console.warn('Google Places API key not set');
-        return [];
-    }
+    if (!GOOGLE_PLACES_API_KEY) return [];
 
     try {
         const response = await fetch(
@@ -158,9 +138,6 @@ async function searchPlacesAPI(query: string): Promise<PlacePrediction[]> {
     }
 }
 
-/**
- * Get place details from Google Places API
- */
 async function getPlaceDetailsAPI(placeId: string): Promise<PlaceDetails | null> {
     if (!GOOGLE_PLACES_API_KEY) return null;
 
@@ -190,255 +167,19 @@ async function getPlaceDetailsAPI(placeId: string): Promise<PlaceDetails | null>
     }
 }
 
-/**
- * Generate trip plan using Gemini AI (Direct API call)
- */
-async function generateTripPlanWithGemini(tripData: {
-    destination: string;
-    duration: number;
-    budget: number;
-    travelType: string;
-    accommodationType: string;
-    transportMode: string;
-    foodPreference: string;
-}): Promise<TripPlan> {
-    const { destination, duration, budget, travelType, accommodationType, transportMode, foodPreference } = tripData;
-
-    const prompt = `You are an expert travel planner. Create a detailed ${duration}-day trip plan for ${destination}.
-
-TRIP DETAILS:
-- Budget: RM ${budget}
-- Travel Type: ${travelType}
-- Accommodation: ${accommodationType}
-- Transport: ${transportMode}
-- Food Preference: ${foodPreference}
-
-IMPORTANT: Return ONLY valid JSON without any markdown formatting or code blocks. The response must be a single JSON object.
-
-Generate a response with this exact JSON structure:
-{
-    "summary": "A brief 2-3 sentence summary of the trip",
-    "daily_plan": [
-        {
-            "day": 1,
-            "theme": "Day theme (e.g., City Exploration)",
-            "activities": [
-                {
-                    "time": "09:00",
-                    "activity": "Activity name",
-                    "description": "Brief description",
-                    "estimated_cost": 50,
-                    "duration": "2 hours"
-                }
-            ],
-            "estimated_cost": 200
-        }
-    ],
-    "total_estimated_cost": ${Math.round(budget * 0.9)},
-    "recommended_hotels": [
-        {
-            "name": "Hotel name",
-            "reason": "Why this hotel fits the budget/style",
-            "estimated_cost_per_night": 150
-        }
-    ],
-    "recommended_food_places": [
-        {
-            "name": "Restaurant name",
-            "cuisine": "Type of cuisine",
-            "meal_type": "breakfast/lunch/dinner",
-            "estimated_cost": 30
-        }
-    ],
-    "travel_tips": [
-        "Tip 1",
-        "Tip 2",
-        "Tip 3",
-        "Tip 4",
-        "Tip 5"
-    ],
-    "budget_breakdown": {
-        "accommodation": ${Math.round(budget * 0.35)},
-        "food": ${Math.round(budget * 0.25)},
-        "attractions": ${Math.round(budget * 0.2)},
-        "transport": ${Math.round(budget * 0.1)},
-        "miscellaneous": ${Math.round(budget * 0.1)}
-    }
-}
-
-REQUIREMENTS:
-1. Total estimated cost MUST stay within budget of RM ${budget}
-2. Activities should be appropriate for ${travelType} travel
-3. Accommodations should match ${accommodationType} preferences
-4. Food suggestions should consider ${foodPreference} preference
-5. Include realistic local prices in Malaysian Ringgit (RM)
-6. Each day should have 4-6 activities
-7. Generate exactly ${duration} days`;
-
-    if (!GEMINI_API_KEY) {
-        // Return fallback plan if no API key
-        return generateFallbackPlan(tripData);
-    }
-
-    try {
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.7,
-                        topK: 40,
-                        topP: 0.95,
-                        maxOutputTokens: 4096,
-                    },
-                }),
-            }
-        );
-
-        const data = await response.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!text) {
-            console.error('No response from Gemini');
-            return generateFallbackPlan(tripData);
-        }
-
-        // Parse the JSON response
-        let cleanText = text.trim();
-        if (cleanText.startsWith('```json')) cleanText = cleanText.slice(7);
-        else if (cleanText.startsWith('```')) cleanText = cleanText.slice(3);
-        if (cleanText.endsWith('```')) cleanText = cleanText.slice(0, -3);
-        cleanText = cleanText.trim();
-
-        const parsed = JSON.parse(cleanText);
-        return validateTripPlan(parsed);
-    } catch (error) {
-        console.error('Gemini API error:', error);
-        return generateFallbackPlan(tripData);
-    }
-}
-
-/**
- * Validate and normalize trip plan structure
- */
-function validateTripPlan(plan: any): TripPlan {
-    return {
-        summary: plan.summary || 'Trip plan generated successfully.',
-        daily_plan: Array.isArray(plan.daily_plan)
-            ? plan.daily_plan.map((day: any, index: number) => ({
-                  day: day.day || index + 1,
-                  theme: day.theme || `Day ${index + 1}`,
-                  activities: Array.isArray(day.activities)
-                      ? day.activities.map((act: any) => ({
-                            time: act.time || '09:00',
-                            activity: act.activity || 'Activity',
-                            description: act.description || '',
-                            estimated_cost: Number(act.estimated_cost) || 0,
-                            duration: act.duration || '1 hour',
-                        }))
-                      : [],
-                  estimated_cost: Number(day.estimated_cost) || 0,
-              }))
-            : [],
-        total_estimated_cost: Number(plan.total_estimated_cost) || 0,
-        recommended_hotels: Array.isArray(plan.recommended_hotels) ? plan.recommended_hotels : [],
-        recommended_food_places: Array.isArray(plan.recommended_food_places) ? plan.recommended_food_places : [],
-        travel_tips: Array.isArray(plan.travel_tips) ? plan.travel_tips : [],
-        budget_breakdown: plan.budget_breakdown || {},
-    };
-}
-
-/**
- * Generate fallback plan without AI
- */
-function generateFallbackPlan(tripData: {
-    destination: string;
-    duration: number;
-    budget: number;
-    travelType: string;
-    accommodationType: string;
-    transportMode: string;
-    foodPreference: string;
-}): TripPlan {
-    const { destination, duration, budget, travelType, accommodationType } = tripData;
-    const dailyCost = Math.floor(budget / duration);
-    const dailyPlan: DayPlan[] = [];
-
-    const activities = [
-        'Visit local landmark',
-        'Explore city center',
-        'Try local cuisine',
-        'Shopping at market',
-        'Visit museum/gallery',
-        'Nature walk/park',
-        'Cultural experience',
-        'Sunset viewing spot',
-    ];
-
-    for (let day = 1; day <= duration; day++) {
-        const dayActivities: Activity[] = [
-            { time: '09:00', activity: activities[(day * 4) % activities.length], description: 'Morning activity', estimated_cost: dailyCost * 0.15, duration: '2 hours' },
-            { time: '12:00', activity: 'Lunch at local restaurant', description: 'Try local specialties', estimated_cost: dailyCost * 0.1, duration: '1 hour' },
-            { time: '14:00', activity: activities[(day * 4 + 1) % activities.length], description: 'Afternoon exploration', estimated_cost: dailyCost * 0.2, duration: '3 hours' },
-            { time: '17:00', activity: activities[(day * 4 + 2) % activities.length], description: 'Evening activity', estimated_cost: dailyCost * 0.15, duration: '2 hours' },
-            { time: '19:30', activity: 'Dinner', description: 'Evening meal', estimated_cost: dailyCost * 0.15, duration: '1.5 hours' },
-        ];
-
-        dailyPlan.push({
-            day,
-            theme: `Day ${day} - Explore ${destination}`,
-            activities: dayActivities,
-            estimated_cost: dailyCost,
-        });
-    }
-
-    const hotelCostPerNight = accommodationType === 'luxury' ? 400 : accommodationType === 'standard' ? 200 : 100;
-
-    return {
-        summary: `A ${duration}-day adventure in ${destination} perfect for ${travelType} travelers. This itinerary covers popular attractions, local cuisine, and memorable experiences within your RM ${budget} budget.`,
-        daily_plan: dailyPlan,
-        total_estimated_cost: budget * 0.9,
-        recommended_hotels: [
-            { name: `${accommodationType.charAt(0).toUpperCase() + accommodationType.slice(1)} Hotel ${destination}`, reason: 'Great location and value', estimated_cost_per_night: hotelCostPerNight },
-            { name: `${destination} Inn`, reason: 'Central location with good reviews', estimated_cost_per_night: hotelCostPerNight * 0.9 },
-        ],
-        recommended_food_places: [
-            { name: 'Local Street Food Market', cuisine: 'Street Food', meal_type: 'lunch/dinner', estimated_cost: 20 },
-            { name: `${destination} Traditional Restaurant`, cuisine: 'Local', meal_type: 'dinner', estimated_cost: 50 },
-            { name: 'Cafe District', cuisine: 'Cafe/Breakfast', meal_type: 'breakfast', estimated_cost: 25 },
-        ],
-        travel_tips: [
-            'Book accommodations in advance for better rates',
-            'Try local street food for authentic experiences',
-            'Use public transport or ride-sharing apps to save money',
-            'Keep some cash for small vendors',
-            'Download offline maps before your trip',
-        ],
-        budget_breakdown: {
-            accommodation: Math.floor(budget * 0.35),
-            food: Math.floor(budget * 0.25),
-            attractions: Math.floor(budget * 0.2),
-            transport: Math.floor(budget * 0.1),
-            miscellaneous: Math.floor(budget * 0.1),
-        },
-    };
-}
-
 // ============================================
 // MAIN COMPONENT
 // ============================================
 
-export const PlannerScreen: React.FC = () => {
+export const PlannerScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
     const { theme } = useTheme();
     const { userProfile } = useAuth();
     const searchTimeout = useRef<NodeJS.Timeout | null>(null);
 
     // Trip list state
-    const [trips, setTrips] = useState<Trip[]>([]);
+    const [trips, setTrips] = useState<StoredTripPlan[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
 
     // Form modal state
     const [modalVisible, setModalVisible] = useState(false);
@@ -448,10 +189,11 @@ export const PlannerScreen: React.FC = () => {
     const [destination, setDestination] = useState('');
     const [selectedPlace, setSelectedPlace] = useState<PlaceDetails | null>(null);
     const [placeId, setPlaceId] = useState('');
-    const [duration, setDuration] = useState('');
+    const [days, setDays] = useState('');
     const [budget, setBudget] = useState('');
+    const [travelers, setTravelers] = useState('1');
     const [travelType, setTravelType] = useState('solo');
-    const [accommodationType, setAccommodationType] = useState('standard');
+    const [roomType, setRoomType] = useState('standard');
     const [transportMode, setTransportMode] = useState('car');
     const [foodPreference, setFoodPreference] = useState('mixed');
 
@@ -463,11 +205,67 @@ export const PlannerScreen: React.FC = () => {
 
     // AI Plan result state
     const [generatingPlan, setGeneratingPlan] = useState(false);
-    const [currentPlan, setCurrentPlan] = useState<TripPlan | null>(null);
+    const [currentPlan, setCurrentPlan] = useState<TripPlanResponse | null>(null);
     const [planModalVisible, setPlanModalVisible] = useState(false);
     const [currentTripMeta, setCurrentTripMeta] = useState<any>(null);
+    const [currentTripId, setCurrentTripId] = useState<number | null>(null);
 
-    // Debounced place search (Direct Google Places API)
+    // Share modal state
+    const [shareModalVisible, setShareModalVisible] = useState(false);
+    const [pdfGenerating, setPdfGenerating] = useState(false);
+    const [generatedPdfUri, setGeneratedPdfUri] = useState<string | null>(null);
+
+    // AI Status state
+    const [aiStatus, setAiStatus] = useState<AIStatus>('idle');
+    const [aiMessage, setAiMessage] = useState<string>('Checking AI...');
+
+    // Check AI connection on mount
+    useEffect(() => {
+        const checkAI = async () => {
+            const result = await checkAIConnection();
+            setAiMessage(result.message);
+        };
+        checkAI();
+        
+        // Set up status callback
+        setAIStatusCallback((status, message) => {
+            setAiStatus(status);
+            if (message) setAiMessage(message);
+        });
+    }, []);
+
+    // Load trips from database
+    const loadTrips = useCallback(async () => {
+        if (!userProfile?.id) {
+            setLoading(false);
+            return;
+        }
+
+        try {
+            const { data, error } = await getTripPlansForUser(userProfile.id, 'active');
+            if (error) {
+                console.error('Error loading trips:', error);
+            } else {
+                setTrips(data || []);
+            }
+        } catch (error) {
+            console.error('Load trips error:', error);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    }, [userProfile?.id]);
+
+    useEffect(() => {
+        loadTrips();
+    }, [loadTrips]);
+
+    const onRefresh = useCallback(() => {
+        setRefreshing(true);
+        loadTrips();
+    }, [loadTrips]);
+
+    // Debounced place search
     const searchPlaces = useCallback(async (query: string) => {
         if (query.length < 2) {
             setPredictions([]);
@@ -481,7 +279,6 @@ export const PlannerScreen: React.FC = () => {
         setSearchLoading(false);
     }, []);
 
-    // Handle search input change with debounce
     const handleSearchChange = (text: string) => {
         setSearchQuery(text);
         setDestination(text);
@@ -495,7 +292,6 @@ export const PlannerScreen: React.FC = () => {
         }, 300);
     };
 
-    // Select a place from predictions (Direct Google Places API)
     const selectPlace = async (prediction: PlacePrediction) => {
         setDestination(prediction.description);
         setSearchQuery(prediction.description);
@@ -513,17 +309,20 @@ export const PlannerScreen: React.FC = () => {
     const validateForm = (): string | null => {
         if (!destination.trim()) return 'Please enter a destination';
 
-        const daysNum = parseInt(duration);
+        const daysNum = parseInt(days);
         if (isNaN(daysNum) || daysNum < 1) return 'Duration must be at least 1 day';
         if (daysNum > 30) return 'Duration cannot exceed 30 days';
 
         const budgetNum = parseFloat(budget);
         if (isNaN(budgetNum) || budgetNum <= 0) return 'Budget must be greater than 0';
 
+        const travelersNum = parseInt(travelers);
+        if (isNaN(travelersNum) || travelersNum < 1) return 'Number of travelers must be at least 1';
+
         return null;
     };
 
-    // Generate trip plan (Direct Gemini API - No backend!)
+    // Generate trip plan with AI
     const handleGeneratePlan = async () => {
         const error = validateForm();
         if (error) {
@@ -533,58 +332,117 @@ export const PlannerScreen: React.FC = () => {
 
         setSubmitting(true);
         setGeneratingPlan(true);
+        console.log('[TRIP PLANNER] Starting plan generation...');
+        console.log('[TRIP PLANNER] Destination:', destination.trim());
+        console.log('[TRIP PLANNER] Days:', days, 'Budget:', budget, 'Travelers:', travelers);
 
         try {
-            const tripPlan = await generateTripPlanWithGemini({
+            const tripPlan = await generateTripPlanWithDeepSeek({
                 destination: destination.trim(),
-                duration: parseInt(duration),
+                days: parseInt(days),
                 budget: parseFloat(budget),
-                travelType,
-                accommodationType,
+                travelers: parseInt(travelers),
+                roomType: roomType as 'budget' | 'standard' | 'luxury',
+                travelType: travelType as 'solo' | 'couple' | 'family' | 'friends',
                 transportMode,
                 foodPreference,
             });
 
+            console.log('[TRIP PLANNER] ✓ Plan received!');
+            console.log('[TRIP PLANNER] Summary:', tripPlan.summary);
+            console.log('[TRIP PLANNER] Total Cost:', tripPlan.total_cost_lkr, 'LKR');
+            console.log('[TRIP PLANNER] Days in plan:', tripPlan.daily_plan?.length);
+            console.log('[TRIP PLANNER] Hotels:', tripPlan.hotel_details?.length);
+            console.log('[TRIP PLANNER] Budget Sufficient:', tripPlan.budget_sufficient);
+
+            // Check if budget is sufficient
+            if (!tripPlan.budget_sufficient) {
+                Alert.alert(
+                    'Budget Insufficient',
+                    tripPlan.budget_message || 'Your budget is not enough for this destination and selected days. Please increase budget or reduce days.',
+                    [
+                        { text: 'Adjust & Retry', style: 'cancel' },
+                        { 
+                            text: 'Continue Anyway', 
+                            onPress: () => saveTripPlan(tripPlan),
+                        },
+                    ]
+                );
+                setSubmitting(false);
+                setGeneratingPlan(false);
+                return;
+            }
+
+            await saveTripPlan(tripPlan);
+        } catch (error: any) {
+            console.error('[TRIP PLANNER] ✗ Error:', error);
+            Alert.alert('Error', error.message || 'Failed to generate trip plan. Please try again.');
+            setSubmitting(false);
+            setGeneratingPlan(false);
+        }
+    };
+
+    // Save trip plan to database
+    const saveTripPlan = async (tripPlan: TripPlanResponse) => {
+        console.log('[TRIP PLANNER] Saving plan to database...');
+        try {
+            const tripPlanData: TripPlanInsert = {
+                user_id: userProfile?.id || 0,
+                destination: destination.trim(),
+                days: parseInt(days),
+                budget_lkr: parseFloat(budget),
+                travelers: parseInt(travelers),
+                room_type: roomType,
+                travel_type: travelType,
+                transport_mode: transportMode,
+                food_preference: foodPreference,
+                summary: tripPlan.summary,
+                itinerary_json: tripPlan.daily_plan,
+                hotel_details_json: tripPlan.hotel_details,
+                food_places_json: tripPlan.food_places,
+                transport_details_json: tripPlan.transport_summary,
+                cost_breakdown_json: tripPlan.cost_breakdown_lkr,
+                travel_tips_json: tripPlan.travel_tips,
+                total_cost_lkr: tripPlan.total_cost_lkr,
+                total_cost_usd: tripPlan.total_cost_usd,
+                budget_sufficient: tripPlan.budget_sufficient,
+                budget_message: tripPlan.budget_message,
+            };
+
+            console.log('[TRIP PLANNER] Plan data prepared:', JSON.stringify(tripPlanData, null, 2).substring(0, 500));
+
+            const { data, error } = await createTripPlan(tripPlanData);
+
+            if (error) {
+                console.error('[TRIP PLANNER] Save error:', error);
+                // Still show the plan even if save fails
+            } else {
+                console.log('[TRIP PLANNER] ✓ Plan saved with ID:', data?.id);
+            }
+
+            console.log('[TRIP PLANNER] Setting current plan for display...');
             setCurrentPlan(tripPlan);
             setCurrentTripMeta({
                 destination: destination.trim(),
-                duration: parseInt(duration),
+                days: parseInt(days),
                 budget: parseFloat(budget),
+                travelers: parseInt(travelers),
+                roomType,
                 travelType,
-                accommodationType,
             });
+            setCurrentTripId(data?.id || null);
 
-            // Save to trips list
-            const newTrip: Trip = {
-                id: Date.now(),
-                destination: destination.trim(),
-                place_id: placeId,
-                latitude: selectedPlace?.latitude,
-                longitude: selectedPlace?.longitude,
-                duration: parseInt(duration),
-                budget: parseFloat(budget),
-                travel_type: travelType,
-                accommodation_type: accommodationType,
-                transport_mode: transportMode,
-                food_preference: foodPreference,
-                total_estimated_cost: tripPlan.total_estimated_cost,
-                status: 'planning',
-                ai_summary: tripPlan.summary,
-                trip_plan: tripPlan,
-                created_at: new Date().toISOString(),
-            };
-
-            setTrips((prev) => [newTrip, ...prev]);
             setModalVisible(false);
             setPlanModalVisible(true);
+            console.log('[TRIP PLANNER] ✓ Plan modal should now be visible');
             resetForm();
-        } catch (error: any) {
-            console.error('Generate plan error:', error);
-            Alert.alert('Error', error.message || 'Failed to generate trip plan. Please try again.');
+            loadTrips();
+        } catch (error) {
+            console.error('[TRIP PLANNER] Save error:', error);
+        } finally {
+            setSubmitting(false);
+            setGeneratingPlan(false);
         }
-
-        setSubmitting(false);
-        setGeneratingPlan(false);
     };
 
     // Reset form
@@ -593,10 +451,11 @@ export const PlannerScreen: React.FC = () => {
         setSearchQuery('');
         setSelectedPlace(null);
         setPlaceId('');
-        setDuration('');
+        setDays('');
         setBudget('');
+        setTravelers('1');
         setTravelType('solo');
-        setAccommodationType('standard');
+        setRoomType('standard');
         setTransportMode('car');
         setFoodPreference('mixed');
         setPredictions([]);
@@ -604,21 +463,131 @@ export const PlannerScreen: React.FC = () => {
     };
 
     // View existing trip plan
-    const viewTripPlan = (trip: Trip) => {
-        if (trip.trip_plan) {
-            setCurrentPlan(trip.trip_plan);
-            setCurrentTripMeta({
-                destination: trip.destination,
-                duration: trip.duration,
-                budget: trip.budget,
-                travelType: trip.travel_type,
-                accommodationType: trip.accommodation_type,
+    const viewTripPlan = (trip: StoredTripPlan) => {
+        const plan: TripPlanResponse = {
+            summary: trip.summary,
+            daily_plan: trip.itinerary_json || [],
+            total_cost_lkr: trip.total_cost_lkr,
+            hotel_details: trip.hotel_details_json || [],
+            transport_summary: trip.transport_details_json || { mode: 'car', total_cost_lkr: 0, details: '' },
+            food_places: trip.food_places_json || [],
+            cost_breakdown_lkr: trip.cost_breakdown_json || {},
+            travel_tips: trip.travel_tips_json || [],
+            budget_sufficient: trip.budget_sufficient,
+            budget_message: trip.budget_message,
+        };
+
+        setCurrentPlan(plan);
+        setCurrentTripMeta({
+            destination: trip.destination,
+            days: trip.days,
+            budget: trip.budget_lkr,
+            travelers: trip.travelers,
+            roomType: trip.room_type,
+            travelType: trip.travel_type,
+        });
+        setCurrentTripId(trip.id);
+        setPlanModalVisible(true);
+    };
+
+    // Void trip (instead of delete)
+    const handleVoidTrip = async (tripId: number) => {
+        Alert.alert(
+            'Void Trip',
+            'Are you sure you want to void this trip? It will be moved to the Void Trips page.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Void',
+                    style: 'destructive',
+                    onPress: async () => {
+                        const { error } = await voidTripPlan(tripId, 'Voided by user');
+                        if (error) {
+                            Alert.alert('Error', 'Failed to void trip');
+                        } else {
+                            loadTrips();
+                            setPlanModalVisible(false);
+                        }
+                    },
+                },
+            ]
+        );
+    };
+
+    // PDF Generation
+    const handleGeneratePDF = async () => {
+        if (!currentPlan || !currentTripMeta) return;
+
+        setPdfGenerating(true);
+        try {
+            const result = await generateTripPDF({
+                userName: userProfile?.name || 'Traveler',
+                userEmail: userProfile?.email,
+                destination: currentTripMeta.destination,
+                days: currentTripMeta.days,
+                travelers: currentTripMeta.travelers,
+                roomType: currentTripMeta.roomType,
+                tripPlan: currentPlan,
+                createdAt: new Date().toISOString(),
             });
-            setPlanModalVisible(true);
-        } else {
-            Alert.alert('No Plan', 'This trip does not have a generated plan yet.');
+
+            if (result.success) {
+                setGeneratedPdfUri(result.uri);
+                Alert.alert('PDF Generated', 'Your trip plan PDF is ready!', [
+                    { text: 'Share', onPress: () => shareTripPDF(result.uri) },
+                    { text: 'OK' },
+                ]);
+            } else {
+                Alert.alert('Error', result.error || 'Failed to generate PDF');
+            }
+        } catch (error) {
+            Alert.alert('Error', 'Failed to generate PDF');
+        } finally {
+            setPdfGenerating(false);
         }
     };
+
+    // Share handlers
+    const handleShare = () => {
+        setShareModalVisible(true);
+    };
+
+    const handleShareOption = async (option: string) => {
+        if (!currentPlan || !currentTripMeta) return;
+
+        const shareData = {
+            userName: userProfile?.name || 'Traveler',
+            destination: currentTripMeta.destination,
+            days: currentTripMeta.days,
+            travelers: currentTripMeta.travelers,
+            totalCost: currentPlan.total_cost_lkr,
+            summary: currentPlan.summary,
+        };
+
+        setShareModalVisible(false);
+
+        switch (option) {
+            case 'native':
+                await shareViaNative(shareData);
+                break;
+            case 'whatsapp':
+                await shareViaWhatsApp(shareData);
+                break;
+            case 'email':
+                await shareViaEmail(shareData);
+                break;
+            case 'pdf':
+                if (generatedPdfUri) {
+                    await shareTripPDF(generatedPdfUri);
+                } else {
+                    handleGeneratePDF();
+                }
+                break;
+        }
+    };
+
+    // Format currency
+    const formatLKR = (amount: number) => `LKR ${amount?.toLocaleString() || '0'}`;
 
     // Option selector component
     const OptionSelector = ({
@@ -661,11 +630,6 @@ export const PlannerScreen: React.FC = () => {
         </View>
     );
 
-    // Load trips
-    useEffect(() => {
-        setLoading(false);
-    }, []);
-
     if (loading) {
         return (
             <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}>
@@ -681,9 +645,40 @@ export const PlannerScreen: React.FC = () => {
             {/* Header */}
             <View style={styles.header}>
                 <Text style={[styles.title, { color: theme.colors.text }]}>Trip Planner</Text>
-                <TouchableOpacity style={[styles.addBtn, { backgroundColor: theme.colors.primary }]} onPress={() => setModalVisible(true)}>
-                    <Ionicons name="add" size={22} color="#fff" />
-                </TouchableOpacity>
+                <View style={styles.headerBtns}>
+                    <TouchableOpacity 
+                        style={[styles.voidBtn, { backgroundColor: theme.colors.backgroundSecondary }]} 
+                        onPress={() => navigation?.navigate?.('VoidTrips')}
+                    >
+                        <Ionicons name="trash-outline" size={20} color={theme.colors.textSecondary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.addBtn, { backgroundColor: theme.colors.primary }]} onPress={() => setModalVisible(true)}>
+                        <Ionicons name="add" size={22} color="#fff" />
+                    </TouchableOpacity>
+                </View>
+            </View>
+
+            {/* AI Status Indicator */}
+            <View style={[styles.aiStatusBar, { 
+                backgroundColor: aiStatus === 'connected' || aiStatus === 'idle' ? '#22C55E20' : 
+                                 aiStatus === 'error' || aiStatus === 'fallback' ? '#EF444420' : 
+                                 '#6366F120' 
+            }]}>
+                <View style={[styles.aiStatusDot, { 
+                    backgroundColor: aiStatus === 'connected' || aiStatus === 'idle' ? '#22C55E' : 
+                                     aiStatus === 'error' || aiStatus === 'fallback' ? '#EF4444' : 
+                                     '#6366F1' 
+                }]} />
+                <Text style={[styles.aiStatusText, { 
+                    color: aiStatus === 'connected' || aiStatus === 'idle' ? '#22C55E' : 
+                           aiStatus === 'error' || aiStatus === 'fallback' ? '#EF4444' : 
+                           '#6366F1' 
+                }]}>
+                    {aiMessage}
+                </Text>
+                {(aiStatus === 'connecting' || aiStatus === 'generating') && (
+                    <ActivityIndicator size="small" color="#6366F1" style={{ marginLeft: 8 }} />
+                )}
             </View>
 
             <ResponsiveContainer>
@@ -702,19 +697,30 @@ export const PlannerScreen: React.FC = () => {
                         keyExtractor={(item) => String(item.id)}
                         contentContainerStyle={{ padding: 16 }}
                         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+                        refreshControl={
+                            <RefreshControl
+                                refreshing={refreshing}
+                                onRefresh={onRefresh}
+                                colors={[theme.colors.primary]}
+                                tintColor={theme.colors.primary}
+                            />
+                        }
                         renderItem={({ item }) => (
                             <TouchableOpacity onPress={() => viewTripPlan(item)}>
                                 <Card elevated>
                                     <View style={styles.tripCard}>
                                         <View
-                                            style={[styles.iconBox, { backgroundColor: STATUS_COLORS[item.status ?? 'planning'] + '20' }]}
+                                            style={[styles.iconBox, { backgroundColor: STATUS_COLORS[item.status] + '20' }]}
                                         >
-                                            <Ionicons name="airplane-outline" size={28} color={STATUS_COLORS[item.status ?? 'planning']} />
+                                            <Ionicons name="airplane-outline" size={28} color={STATUS_COLORS[item.status]} />
                                         </View>
                                         <View style={styles.tripInfo}>
                                             <Text style={[styles.destText, { color: theme.colors.text }]}>{item.destination}</Text>
                                             <Text style={[styles.tripMeta, { color: theme.colors.textSecondary }]}>
-                                                {item.duration} day{item.duration > 1 ? 's' : ''} · RM {item.budget.toFixed(0)}
+                                                {item.days} day{item.days > 1 ? 's' : ''} · {item.travelers} traveler{item.travelers > 1 ? 's' : ''}
+                                            </Text>
+                                            <Text style={[styles.tripCost, { color: theme.colors.success }]}>
+                                                {formatLKR(item.total_cost_lkr)}
                                             </Text>
                                             <View style={styles.tripTags}>
                                                 <View style={[styles.tag, { backgroundColor: theme.colors.backgroundSecondary }]}>
@@ -724,25 +730,22 @@ export const PlannerScreen: React.FC = () => {
                                                     </Text>
                                                 </View>
                                                 <View style={[styles.tag, { backgroundColor: theme.colors.backgroundSecondary }]}>
-                                                    <Ionicons name="home-outline" size={10} color={theme.colors.textSecondary} />
+                                                    <Ionicons name="bed-outline" size={10} color={theme.colors.textSecondary} />
                                                     <Text style={[styles.tagText, { color: theme.colors.textSecondary }]}>
-                                                        {item.accommodation_type}
+                                                        {item.room_type}
                                                     </Text>
                                                 </View>
                                             </View>
-                                            {item.trip_plan && (
-                                                <View style={[styles.aiBadge, { backgroundColor: theme.colors.success + '15' }]}>
-                                                    <Ionicons name="sparkles" size={12} color={theme.colors.success} />
-                                                    <Text style={[styles.aiBadgeText, { color: theme.colors.success }]}>View AI Plan</Text>
-                                                </View>
-                                            )}
+                                            <View style={[styles.aiBadge, { backgroundColor: theme.colors.success + '15' }]}>
+                                                <Ionicons name="sparkles" size={12} color={theme.colors.success} />
+                                                <Text style={[styles.aiBadgeText, { color: theme.colors.success }]}>View AI Plan</Text>
+                                            </View>
                                         </View>
                                         <View
-                                            style={[styles.statusBadge, { backgroundColor: STATUS_COLORS[item.status ?? 'planning'] + '20' }]}
+                                            style={[styles.statusBadge, { backgroundColor: STATUS_COLORS[item.status] + '20' }]}
                                         >
-                                            <Text style={[styles.statusText, { color: STATUS_COLORS[item.status ?? 'planning'] }]}>
-                                                {item.status?.charAt(0).toUpperCase()}
-                                                {item.status?.slice(1)}
+                                            <Text style={[styles.statusText, { color: STATUS_COLORS[item.status] }]}>
+                                                {item.status?.charAt(0).toUpperCase()}{item.status?.slice(1)}
                                             </Text>
                                         </View>
                                     </View>
@@ -759,12 +762,7 @@ export const PlannerScreen: React.FC = () => {
                     <View style={[styles.modal, { backgroundColor: theme.colors.surface }]}>
                         <View style={styles.modalHeader}>
                             <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Plan a Trip</Text>
-                            <TouchableOpacity
-                                onPress={() => {
-                                    setModalVisible(false);
-                                    resetForm();
-                                }}
-                            >
+                            <TouchableOpacity onPress={() => { setModalVisible(false); resetForm(); }}>
                                 <Ionicons name="close" size={24} color={theme.colors.text} />
                             </TouchableOpacity>
                         </View>
@@ -773,12 +771,7 @@ export const PlannerScreen: React.FC = () => {
                             {/* Destination Search */}
                             <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Destination *</Text>
                             <View style={styles.searchContainer}>
-                                <View
-                                    style={[
-                                        styles.searchInput,
-                                        { borderColor: theme.colors.border, backgroundColor: theme.colors.backgroundSecondary },
-                                    ]}
-                                >
+                                <View style={[styles.searchInput, { borderColor: theme.colors.border, backgroundColor: theme.colors.backgroundSecondary }]}>
                                     <Ionicons name="search-outline" size={18} color={theme.colors.textSecondary} />
                                     <TextInput
                                         value={searchQuery}
@@ -791,21 +784,12 @@ export const PlannerScreen: React.FC = () => {
                                     {searchLoading && <ActivityIndicator size="small" color={theme.colors.primary} />}
                                 </View>
 
-                                {/* Predictions dropdown */}
                                 {showPredictions && predictions.length > 0 && (
-                                    <View
-                                        style={[
-                                            styles.predictionsContainer,
-                                            { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
-                                        ]}
-                                    >
+                                    <View style={[styles.predictionsContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
                                         {predictions.map((pred, idx) => (
                                             <TouchableOpacity
                                                 key={pred.placeId || idx}
-                                                style={[
-                                                    styles.predictionItem,
-                                                    idx < predictions.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border },
-                                                ]}
+                                                style={[styles.predictionItem, idx < predictions.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}
                                                 onPress={() => selectPlace(pred)}
                                             >
                                                 <Ionicons name="location-outline" size={18} color={theme.colors.primary} />
@@ -825,14 +809,8 @@ export const PlannerScreen: React.FC = () => {
                                 )}
                             </View>
 
-                            {/* Selected place preview */}
                             {selectedPlace && (
-                                <View
-                                    style={[
-                                        styles.selectedPlaceCard,
-                                        { backgroundColor: theme.colors.backgroundSecondary, borderColor: theme.colors.border },
-                                    ]}
-                                >
+                                <View style={[styles.selectedPlaceCard, { backgroundColor: theme.colors.backgroundSecondary, borderColor: theme.colors.border }]}>
                                     {selectedPlace.photoUrl && <Image source={{ uri: selectedPlace.photoUrl }} style={styles.placePhoto} />}
                                     <View style={styles.placeInfo}>
                                         <Text style={[styles.placeName, { color: theme.colors.text }]}>{selectedPlace.name}</Text>
@@ -848,77 +826,59 @@ export const PlannerScreen: React.FC = () => {
                             )}
 
                             {/* Duration */}
-                            <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Duration (days) *</Text>
+                            <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Number of Days *</Text>
                             <TextInput
-                                value={duration}
-                                onChangeText={setDuration}
+                                value={days}
+                                onChangeText={setDays}
                                 keyboardType="number-pad"
                                 placeholder="1-30 days"
                                 placeholderTextColor={theme.colors.placeholder}
-                                style={[
-                                    styles.input,
-                                    { borderColor: theme.colors.border, color: theme.colors.text, backgroundColor: theme.colors.backgroundSecondary },
-                                ]}
+                                style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, backgroundColor: theme.colors.backgroundSecondary }]}
                                 maxLength={2}
                             />
 
                             {/* Budget */}
-                            <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Budget (RM) *</Text>
+                            <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Budget (LKR) *</Text>
                             <TextInput
                                 value={budget}
                                 onChangeText={setBudget}
                                 keyboardType="decimal-pad"
-                                placeholder="e.g. 1500"
+                                placeholder="e.g. 150000"
                                 placeholderTextColor={theme.colors.placeholder}
-                                style={[
-                                    styles.input,
-                                    { borderColor: theme.colors.border, color: theme.colors.text, backgroundColor: theme.colors.backgroundSecondary },
-                                ]}
+                                style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, backgroundColor: theme.colors.backgroundSecondary }]}
+                            />
+
+                            {/* Number of Travelers */}
+                            <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Number of Travelers *</Text>
+                            <TextInput
+                                value={travelers}
+                                onChangeText={setTravelers}
+                                keyboardType="number-pad"
+                                placeholder="1"
+                                placeholderTextColor={theme.colors.placeholder}
+                                style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, backgroundColor: theme.colors.backgroundSecondary }]}
+                                maxLength={2}
                             />
 
                             {/* Travel Type */}
                             <OptionSelector title="Travel Type" options={TRAVEL_TYPES} value={travelType} onChange={setTravelType} />
 
-                            {/* Accommodation */}
-                            <OptionSelector
-                                title="Accommodation"
-                                options={ACCOMMODATION_TYPES}
-                                value={accommodationType}
-                                onChange={setAccommodationType}
-                            />
+                            {/* Room Type */}
+                            <OptionSelector title="Room Type" options={ROOM_TYPES} value={roomType} onChange={setRoomType} />
 
                             {/* Transport */}
                             <OptionSelector title="Transport Mode" options={TRANSPORT_MODES} value={transportMode} onChange={setTransportMode} />
 
                             {/* Food Preference */}
-                            <OptionSelector
-                                title="Food Preference"
-                                options={FOOD_PREFERENCES}
-                                value={foodPreference}
-                                onChange={setFoodPreference}
-                            />
+                            <OptionSelector title="Food Preference" options={FOOD_PREFERENCES} value={foodPreference} onChange={setFoodPreference} />
 
                             {/* Submit Buttons */}
                             <View style={styles.modalBtns}>
-                                <Button
-                                    label="Cancel"
-                                    variant="outline"
-                                    onPress={() => {
-                                        setModalVisible(false);
-                                        resetForm();
-                                    }}
-                                    style={{ flex: 1 }}
-                                />
-                                <Button
-                                    label={submitting ? 'Generating...' : 'Generate Plan'}
-                                    onPress={handleGeneratePlan}
-                                    disabled={submitting}
-                                    style={{ flex: 1 }}
-                                />
+                                <Button label="Cancel" variant="outline" onPress={() => { setModalVisible(false); resetForm(); }} style={{ flex: 1 }} />
+                                <Button label={submitting ? 'Generating...' : 'Generate Plan'} onPress={handleGeneratePlan} disabled={submitting} style={{ flex: 1 }} />
                             </View>
                         </ScrollView>
 
-                        {/* Loading overlay */}
                         {generatingPlan && (
                             <View style={styles.loadingOverlay}>
                                 <View style={[styles.loadingBox, { backgroundColor: theme.colors.surface }]}>
@@ -947,7 +907,7 @@ export const PlannerScreen: React.FC = () => {
                                 </Text>
                                 {currentTripMeta && (
                                     <Text style={[styles.planSubtitle, { color: theme.colors.textSecondary }]}>
-                                        {currentTripMeta.destination} · {currentTripMeta.duration} days · RM {currentTripMeta.budget}
+                                        {currentTripMeta.destination} · {currentTripMeta.days} days · {formatLKR(currentTripMeta.budget)}
                                     </Text>
                                 )}
                             </View>
@@ -959,10 +919,18 @@ export const PlannerScreen: React.FC = () => {
                         <ScrollView contentContainerStyle={{ padding: 16 }} showsVerticalScrollIndicator={false}>
                             {currentPlan && (
                                 <>
+                                    {/* Budget Warning */}
+                                    {!currentPlan.budget_sufficient && (
+                                        <View style={[styles.warningCard, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
+                                            <Ionicons name="warning-outline" size={20} color="#D97706" />
+                                            <Text style={[styles.warningText, { color: '#92400E' }]}>
+                                                {currentPlan.budget_message}
+                                            </Text>
+                                        </View>
+                                    )}
+
                                     {/* Summary */}
-                                    <View
-                                        style={[styles.summaryCard, { backgroundColor: theme.colors.primary + '10', borderColor: theme.colors.primary }]}
-                                    >
+                                    <View style={[styles.summaryCard, { backgroundColor: theme.colors.primary + '10', borderColor: theme.colors.primary }]}>
                                         <Text style={[styles.summaryTitle, { color: theme.colors.primary }]}>Trip Summary</Text>
                                         <Text style={[styles.summaryText, { color: theme.colors.text }]}>{currentPlan.summary}</Text>
                                     </View>
@@ -974,23 +942,56 @@ export const PlannerScreen: React.FC = () => {
                                             <Text style={[styles.costTitle, { color: theme.colors.text }]}>Total Estimated Cost</Text>
                                         </View>
                                         <Text style={[styles.costAmount, { color: theme.colors.success }]}>
-                                            RM {currentPlan.total_estimated_cost?.toFixed(2) || '0.00'}
+                                            {formatLKR(currentPlan.total_cost_lkr)}
+                                        </Text>
+                                        <Text style={[styles.costUsd, { color: theme.colors.textSecondary }]}>
+                                            ≈ USD {currentPlan.total_cost_usd || Math.round(currentPlan.total_cost_lkr / 320)}
                                         </Text>
 
-                                        {currentPlan.budget_breakdown && (
+                                        {currentPlan.cost_breakdown_lkr && (
                                             <View style={styles.breakdownGrid}>
-                                                {Object.entries(currentPlan.budget_breakdown).map(([key, value]) => (
+                                                {Object.entries(currentPlan.cost_breakdown_lkr).map(([key, value]) => (
                                                     <View key={key} style={styles.breakdownItem}>
                                                         <Text style={[styles.breakdownLabel, { color: theme.colors.textSecondary }]}>
                                                             {key.charAt(0).toUpperCase() + key.slice(1)}
                                                         </Text>
                                                         <Text style={[styles.breakdownValue, { color: theme.colors.text }]}>
-                                                            RM {(value as number).toFixed(0)}
+                                                            {formatLKR(value as number)}
                                                         </Text>
                                                     </View>
                                                 ))}
                                             </View>
                                         )}
+                                    </View>
+
+                                    {/* Action Buttons */}
+                                    <View style={styles.actionBtns}>
+                                        <TouchableOpacity 
+                                            style={[styles.actionBtn, { backgroundColor: theme.colors.primary }]}
+                                            onPress={handleGeneratePDF}
+                                            disabled={pdfGenerating}
+                                        >
+                                            {pdfGenerating ? (
+                                                <ActivityIndicator size="small" color="#fff" />
+                                            ) : (
+                                                <Ionicons name="document-text-outline" size={20} color="#fff" />
+                                            )}
+                                            <Text style={styles.actionBtnText}>PDF</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity 
+                                            style={[styles.actionBtn, { backgroundColor: '#25D366' }]}
+                                            onPress={handleShare}
+                                        >
+                                            <Ionicons name="share-social-outline" size={20} color="#fff" />
+                                            <Text style={styles.actionBtnText}>Share</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity 
+                                            style={[styles.actionBtn, { backgroundColor: '#EF4444' }]}
+                                            onPress={() => currentTripId && handleVoidTrip(currentTripId)}
+                                        >
+                                            <Ionicons name="close-circle-outline" size={20} color="#fff" />
+                                            <Text style={styles.actionBtnText}>Void</Text>
+                                        </TouchableOpacity>
                                     </View>
 
                                     {/* Daily Itinerary */}
@@ -999,10 +1000,7 @@ export const PlannerScreen: React.FC = () => {
                                     </Text>
 
                                     {currentPlan.daily_plan?.map((day, idx) => (
-                                        <View
-                                            key={idx}
-                                            style={[styles.dayCard, { backgroundColor: theme.colors.backgroundSecondary, borderColor: theme.colors.border }]}
-                                        >
+                                        <View key={idx} style={[styles.dayCard, { backgroundColor: theme.colors.backgroundSecondary, borderColor: theme.colors.border }]}>
                                             <View style={styles.dayHeader}>
                                                 <View style={[styles.dayBadge, { backgroundColor: theme.colors.primary }]}>
                                                     <Text style={styles.dayBadgeText}>Day {day.day}</Text>
@@ -1010,8 +1008,15 @@ export const PlannerScreen: React.FC = () => {
                                                 {day.theme && (
                                                     <Text style={[styles.dayTheme, { color: theme.colors.textSecondary }]}>{day.theme}</Text>
                                                 )}
-                                                <Text style={[styles.dayCost, { color: theme.colors.success }]}>RM {day.estimated_cost}</Text>
+                                                <Text style={[styles.dayCost, { color: theme.colors.success }]}>{formatLKR(day.estimated_cost_lkr)}</Text>
                                             </View>
+
+                                            {day.transport_details && (
+                                                <View style={[styles.transportBadge, { backgroundColor: '#FEF3C7' }]}>
+                                                    <Ionicons name="car-outline" size={14} color="#D97706" />
+                                                    <Text style={[styles.transportText, { color: '#92400E' }]}>{day.transport_details}</Text>
+                                                </View>
+                                            )}
 
                                             {day.activities?.map((activity, actIdx) => (
                                                 <View key={actIdx} style={styles.activityItem}>
@@ -1021,8 +1026,11 @@ export const PlannerScreen: React.FC = () => {
                                                     <View style={styles.activityContent}>
                                                         <Text style={[styles.activityName, { color: theme.colors.text }]}>{activity.activity}</Text>
                                                         {activity.description && (
-                                                            <Text style={[styles.activityDesc, { color: theme.colors.textSecondary }]}>
-                                                                {activity.description}
+                                                            <Text style={[styles.activityDesc, { color: theme.colors.textSecondary }]}>{activity.description}</Text>
+                                                        )}
+                                                        {activity.location && (
+                                                            <Text style={[styles.activityLocation, { color: theme.colors.textSecondary }]}>
+                                                                <Ionicons name="location-outline" size={12} /> {activity.location}
                                                             </Text>
                                                         )}
                                                         <View style={styles.activityMeta}>
@@ -1032,9 +1040,32 @@ export const PlannerScreen: React.FC = () => {
                                                                 </Text>
                                                             )}
                                                             <Text style={[styles.activityCost, { color: theme.colors.success }]}>
-                                                                RM {activity.estimated_cost}
+                                                                {formatLKR(activity.estimated_cost_lkr)}
                                                             </Text>
                                                         </View>
+                                                        {/* Call & Booking buttons */}
+                                                        {(activity.contact_phone || activity.booking_link) && (
+                                                            <View style={styles.activityActions}>
+                                                                {activity.contact_phone && (
+                                                                    <TouchableOpacity 
+                                                                        style={[styles.miniBtn, { backgroundColor: '#22C55E' }]}
+                                                                        onPress={() => makePhoneCall(activity.contact_phone!)}
+                                                                    >
+                                                                        <Ionicons name="call-outline" size={14} color="#fff" />
+                                                                        <Text style={styles.miniBtnText}>Call</Text>
+                                                                    </TouchableOpacity>
+                                                                )}
+                                                                {activity.booking_link && (
+                                                                    <TouchableOpacity 
+                                                                        style={[styles.miniBtn, { backgroundColor: theme.colors.primary }]}
+                                                                        onPress={() => openBookingLink(activity.booking_link!)}
+                                                                    >
+                                                                        <Ionicons name="link-outline" size={14} color="#fff" />
+                                                                        <Text style={styles.miniBtnText}>Book</Text>
+                                                                    </TouchableOpacity>
+                                                                )}
+                                                            </View>
+                                                        )}
                                                     </View>
                                                 </View>
                                             ))}
@@ -1042,23 +1073,60 @@ export const PlannerScreen: React.FC = () => {
                                     ))}
 
                                     {/* Recommended Hotels */}
-                                    {currentPlan.recommended_hotels?.length > 0 && (
+                                    {currentPlan.hotel_details?.length > 0 && (
                                         <>
                                             <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
                                                 <Ionicons name="bed-outline" size={18} color={theme.colors.primary} /> Recommended Hotels
                                             </Text>
-                                            {currentPlan.recommended_hotels.map((hotel: any, idx: number) => (
-                                                <View key={idx} style={[styles.recommendCard, { backgroundColor: theme.colors.backgroundSecondary }]}>
-                                                    <Ionicons name="business-outline" size={24} color={theme.colors.primary} />
-                                                    <View style={styles.recommendInfo}>
-                                                        <Text style={[styles.recommendName, { color: theme.colors.text }]}>{hotel.name}</Text>
-                                                        <Text style={[styles.recommendReason, { color: theme.colors.textSecondary }]}>
-                                                            {hotel.reason}
+                                            {currentPlan.hotel_details.map((hotel: any, idx: number) => (
+                                                <View key={idx} style={[styles.hotelCard, { backgroundColor: theme.colors.backgroundSecondary, borderColor: theme.colors.border }]}>
+                                                    <View style={styles.hotelHeader}>
+                                                        <Ionicons name="business-outline" size={24} color={theme.colors.primary} />
+                                                        <View style={styles.hotelInfo}>
+                                                            <Text style={[styles.hotelName, { color: theme.colors.text }]}>{hotel.name}</Text>
+                                                            {hotel.rating && (
+                                                                <View style={styles.ratingRow}>
+                                                                    <Ionicons name="star" size={14} color="#F59E0B" />
+                                                                    <Text style={[styles.ratingText, { color: theme.colors.text }]}>{hotel.rating}/5</Text>
+                                                                </View>
+                                                            )}
+                                                        </View>
+                                                        <Text style={[styles.hotelPrice, { color: theme.colors.success }]}>
+                                                            {formatLKR(hotel.price_per_night_lkr)}/night
                                                         </Text>
-                                                        {hotel.estimated_cost_per_night && (
-                                                            <Text style={[styles.recommendCost, { color: theme.colors.success }]}>
-                                                                ~RM {hotel.estimated_cost_per_night}/night
-                                                            </Text>
+                                                    </View>
+                                                    {hotel.address && (
+                                                        <Text style={[styles.hotelAddress, { color: theme.colors.textSecondary }]}>
+                                                            <Ionicons name="location-outline" size={12} /> {hotel.address}
+                                                        </Text>
+                                                    )}
+                                                    {hotel.amenities?.length > 0 && (
+                                                        <Text style={[styles.hotelAmenities, { color: theme.colors.textSecondary }]}>
+                                                            ✨ {hotel.amenities.join(' · ')}
+                                                        </Text>
+                                                    )}
+                                                    {hotel.reason && (
+                                                        <Text style={[styles.hotelReason, { color: theme.colors.text }]}>{hotel.reason}</Text>
+                                                    )}
+                                                    {/* Hotel action buttons */}
+                                                    <View style={styles.hotelActions}>
+                                                        {hotel.contact_phone && (
+                                                            <TouchableOpacity 
+                                                                style={[styles.hotelBtn, { backgroundColor: '#22C55E' }]}
+                                                                onPress={() => makePhoneCall(hotel.contact_phone)}
+                                                            >
+                                                                <Ionicons name="call-outline" size={16} color="#fff" />
+                                                                <Text style={styles.hotelBtnText}>Call Hotel</Text>
+                                                            </TouchableOpacity>
+                                                        )}
+                                                        {hotel.booking_link && (
+                                                            <TouchableOpacity 
+                                                                style={[styles.hotelBtn, { backgroundColor: theme.colors.primary }]}
+                                                                onPress={() => openBookingLink(hotel.booking_link)}
+                                                            >
+                                                                <Ionicons name="globe-outline" size={16} color="#fff" />
+                                                                <Text style={styles.hotelBtnText}>Book Online</Text>
+                                                            </TouchableOpacity>
                                                         )}
                                                     </View>
                                                 </View>
@@ -1067,20 +1135,27 @@ export const PlannerScreen: React.FC = () => {
                                     )}
 
                                     {/* Recommended Food Places */}
-                                    {currentPlan.recommended_food_places?.length > 0 && (
+                                    {currentPlan.food_places?.length > 0 && (
                                         <>
                                             <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-                                                <Ionicons name="restaurant-outline" size={18} color={theme.colors.primary} /> Recommended Food Places
+                                                <Ionicons name="restaurant-outline" size={18} color={theme.colors.primary} /> Food Recommendations
                                             </Text>
                                             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.foodScroll}>
-                                                {currentPlan.recommended_food_places.map((place: any, idx: number) => (
+                                                {currentPlan.food_places.map((place: any, idx: number) => (
                                                     <View key={idx} style={[styles.foodCard, { backgroundColor: theme.colors.backgroundSecondary }]}>
                                                         <Ionicons name="fast-food-outline" size={24} color={theme.colors.warning} />
-                                                        <Text style={[styles.foodName, { color: theme.colors.text }]} numberOfLines={1}>
-                                                            {place.name}
-                                                        </Text>
+                                                        <Text style={[styles.foodName, { color: theme.colors.text }]} numberOfLines={1}>{place.name}</Text>
                                                         <Text style={[styles.foodCuisine, { color: theme.colors.textSecondary }]}>{place.cuisine}</Text>
-                                                        <Text style={[styles.foodCost, { color: theme.colors.success }]}>~RM {place.estimated_cost}</Text>
+                                                        <Text style={[styles.foodMeal, { color: theme.colors.textSecondary }]}>{place.meal_type}</Text>
+                                                        <Text style={[styles.foodCost, { color: theme.colors.success }]}>{formatLKR(place.estimated_cost_lkr)}</Text>
+                                                        {place.contact_phone && (
+                                                            <TouchableOpacity 
+                                                                style={[styles.foodCallBtn, { backgroundColor: '#22C55E' }]}
+                                                                onPress={() => makePhoneCall(place.contact_phone)}
+                                                            >
+                                                                <Ionicons name="call-outline" size={12} color="#fff" />
+                                                            </TouchableOpacity>
+                                                        )}
                                                     </View>
                                                 ))}
                                             </ScrollView>
@@ -1093,9 +1168,7 @@ export const PlannerScreen: React.FC = () => {
                                             <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
                                                 <Ionicons name="bulb-outline" size={18} color={theme.colors.warning} /> Travel Tips
                                             </Text>
-                                            <View
-                                                style={[styles.tipsContainer, { backgroundColor: theme.colors.warning + '10', borderColor: theme.colors.warning }]}
-                                            >
+                                            <View style={[styles.tipsContainer, { backgroundColor: theme.colors.warning + '10', borderColor: theme.colors.warning }]}>
                                                 {currentPlan.travel_tips.map((tip: string, idx: number) => (
                                                     <View key={idx} style={styles.tipItem}>
                                                         <Ionicons name="checkmark-circle" size={16} color={theme.colors.warning} />
@@ -1110,6 +1183,54 @@ export const PlannerScreen: React.FC = () => {
                         </ScrollView>
                     </View>
                 </View>
+            </Modal>
+
+            {/* Share Options Modal */}
+            <Modal visible={shareModalVisible} transparent animationType="fade">
+                <TouchableOpacity 
+                    style={styles.shareOverlay} 
+                    activeOpacity={1} 
+                    onPress={() => setShareModalVisible(false)}
+                >
+                    <View style={[styles.shareModal, { backgroundColor: theme.colors.surface }]}>
+                        <Text style={[styles.shareTitle, { color: theme.colors.text }]}>Share Trip Plan</Text>
+                        
+                        <TouchableOpacity style={styles.shareOption} onPress={() => handleShareOption('native')}>
+                            <View style={[styles.shareIconBox, { backgroundColor: theme.colors.primary + '20' }]}>
+                                <Ionicons name="share-outline" size={24} color={theme.colors.primary} />
+                            </View>
+                            <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>Share</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.shareOption} onPress={() => handleShareOption('whatsapp')}>
+                            <View style={[styles.shareIconBox, { backgroundColor: '#25D36620' }]}>
+                                <Ionicons name="logo-whatsapp" size={24} color="#25D366" />
+                            </View>
+                            <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>WhatsApp</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.shareOption} onPress={() => handleShareOption('email')}>
+                            <View style={[styles.shareIconBox, { backgroundColor: '#EA433520' }]}>
+                                <Ionicons name="mail-outline" size={24} color="#EA4335" />
+                            </View>
+                            <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>Email</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.shareOption} onPress={() => handleShareOption('pdf')}>
+                            <View style={[styles.shareIconBox, { backgroundColor: '#EF444420' }]}>
+                                <Ionicons name="document-text-outline" size={24} color="#EF4444" />
+                            </View>
+                            <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>Share as PDF</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity 
+                            style={[styles.shareCancel, { borderTopColor: theme.colors.border }]}
+                            onPress={() => setShareModalVisible(false)}
+                        >
+                            <Text style={[styles.shareCancelText, { color: theme.colors.textSecondary }]}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableOpacity>
             </Modal>
         </SafeAreaView>
     );
@@ -1126,7 +1247,23 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     title: { fontSize: 22, fontWeight: '800' },
+    headerBtns: { flexDirection: 'row', gap: 8 },
+    voidBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
     addBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+    
+    // AI Status Bar
+    aiStatusBar: { 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        paddingHorizontal: 16, 
+        paddingVertical: 8, 
+        marginHorizontal: 16, 
+        marginBottom: 8,
+        borderRadius: 8 
+    },
+    aiStatusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
+    aiStatusText: { fontSize: 12, fontWeight: '600', flex: 1 },
+    
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32 },
     emptyText: { fontSize: 16, fontWeight: '600' },
     emptySubtext: { fontSize: 14, marginTop: -8, marginBottom: 8, textAlign: 'center' },
@@ -1136,7 +1273,8 @@ const styles = StyleSheet.create({
     iconBox: { width: 56, height: 56, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
     tripInfo: { flex: 1 },
     destText: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
-    tripMeta: { fontSize: 13, marginBottom: 6 },
+    tripMeta: { fontSize: 13, marginBottom: 2 },
+    tripCost: { fontSize: 14, fontWeight: '700', marginBottom: 6 },
     tripTags: { flexDirection: 'row', gap: 6, marginBottom: 6 },
     tag: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
     tagText: { fontSize: 10, textTransform: 'capitalize' },
@@ -1156,31 +1294,9 @@ const styles = StyleSheet.create({
 
     // Search
     searchContainer: { position: 'relative', zIndex: 1000 },
-    searchInput: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        height: 48,
-        borderWidth: 1.5,
-        borderRadius: 10,
-        paddingHorizontal: 12,
-        gap: 8,
-    },
+    searchInput: { flexDirection: 'row', alignItems: 'center', height: 48, borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 12, gap: 8 },
     searchTextInput: { flex: 1, fontSize: 16, height: '100%' },
-    predictionsContainer: {
-        position: 'absolute',
-        top: 52,
-        left: 0,
-        right: 0,
-        borderWidth: 1,
-        borderRadius: 10,
-        maxHeight: 200,
-        zIndex: 1001,
-        elevation: 5,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-    },
+    predictionsContainer: { position: 'absolute', top: 52, left: 0, right: 0, borderWidth: 1, borderRadius: 10, maxHeight: 200, zIndex: 1001, elevation: 5 },
     predictionItem: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 10 },
     predictionText: { flex: 1 },
     predictionMain: { fontSize: 14, fontWeight: '600' },
@@ -1198,24 +1314,11 @@ const styles = StyleSheet.create({
     // Options
     optionSection: { marginTop: 12 },
     optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    optionBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        borderRadius: 10,
-        borderWidth: 1.5,
-    },
+    optionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5 },
     optionLabel: { fontSize: 13, fontWeight: '600' },
 
     // Loading
-    loadingOverlay: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0,0,0,0.7)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
+    loadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
     loadingBox: { padding: 24, borderRadius: 16, alignItems: 'center', width: '80%' },
     loadingText: { fontSize: 16, fontWeight: '600', marginTop: 16, textAlign: 'center' },
     loadingSubtext: { fontSize: 13, marginTop: 4 },
@@ -1223,16 +1326,13 @@ const styles = StyleSheet.create({
     // Plan Modal
     planOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: 16 },
     planModal: { borderRadius: 20, maxHeight: '90%', overflow: 'hidden' },
-    planHeader: {
-        padding: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: '#eee',
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-    },
+    planHeader: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
     planTitle: { fontSize: 18, fontWeight: '800' },
     planSubtitle: { fontSize: 13, marginTop: 4 },
+
+    // Warning
+    warningCard: { padding: 12, borderRadius: 10, marginBottom: 16, flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderWidth: 1 },
+    warningText: { flex: 1, fontSize: 13 },
 
     // Summary
     summaryCard: { padding: 16, borderRadius: 12, borderWidth: 1, marginBottom: 16 },
@@ -1244,10 +1344,16 @@ const styles = StyleSheet.create({
     costHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
     costTitle: { fontSize: 14, fontWeight: '600' },
     costAmount: { fontSize: 28, fontWeight: '800' },
+    costUsd: { fontSize: 14, marginTop: 2 },
     breakdownGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 12, gap: 8 },
     breakdownItem: { width: '48%', padding: 8, borderRadius: 8 },
     breakdownLabel: { fontSize: 11, textTransform: 'capitalize' },
     breakdownValue: { fontSize: 14, fontWeight: '700' },
+
+    // Action Buttons
+    actionBtns: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+    actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 10 },
+    actionBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 
     // Day Card
     sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 12, marginTop: 8 },
@@ -1257,6 +1363,8 @@ const styles = StyleSheet.create({
     dayBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
     dayTheme: { flex: 1, fontSize: 13, fontStyle: 'italic' },
     dayCost: { fontSize: 13, fontWeight: '700' },
+    transportBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 8, borderRadius: 6, marginBottom: 10 },
+    transportText: { flex: 1, fontSize: 12 },
 
     // Activity
     activityItem: { flexDirection: 'row', marginBottom: 12, gap: 10 },
@@ -1265,26 +1373,50 @@ const styles = StyleSheet.create({
     activityContent: { flex: 1 },
     activityName: { fontSize: 14, fontWeight: '600' },
     activityDesc: { fontSize: 12, marginTop: 2 },
+    activityLocation: { fontSize: 11, marginTop: 2 },
     activityMeta: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },
     activityMetaText: { fontSize: 11 },
     activityCost: { fontSize: 12, fontWeight: '600' },
+    activityActions: { flexDirection: 'row', gap: 8, marginTop: 6 },
+    miniBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+    miniBtnText: { color: '#fff', fontSize: 11, fontWeight: '600' },
 
-    // Recommendations
-    recommendCard: { flexDirection: 'row', padding: 12, borderRadius: 10, marginBottom: 8, alignItems: 'center', gap: 12 },
-    recommendInfo: { flex: 1 },
-    recommendName: { fontSize: 14, fontWeight: '600' },
-    recommendReason: { fontSize: 12, marginTop: 2 },
-    recommendCost: { fontSize: 12, fontWeight: '700', marginTop: 4 },
+    // Hotel Card
+    hotelCard: { borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1 },
+    hotelHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+    hotelInfo: { flex: 1 },
+    hotelName: { fontSize: 15, fontWeight: '700' },
+    hotelPrice: { fontSize: 14, fontWeight: '700' },
+    hotelAddress: { fontSize: 12, marginBottom: 4 },
+    hotelAmenities: { fontSize: 11, marginBottom: 4 },
+    hotelReason: { fontSize: 12, fontStyle: 'italic', marginBottom: 8 },
+    hotelActions: { flexDirection: 'row', gap: 8, marginTop: 8 },
+    hotelBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 8 },
+    hotelBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
 
     // Food Scroll
     foodScroll: { marginBottom: 16 },
-    foodCard: { width: 120, padding: 12, borderRadius: 10, marginRight: 10, alignItems: 'center' },
+    foodCard: { width: 130, padding: 12, borderRadius: 10, marginRight: 10, alignItems: 'center' },
     foodName: { fontSize: 12, fontWeight: '600', marginTop: 8, textAlign: 'center' },
     foodCuisine: { fontSize: 10, marginTop: 2 },
-    foodCost: { fontSize: 11, fontWeight: '700', marginTop: 4 },
+    foodMeal: { fontSize: 10, marginTop: 2 },
+    foodCost: { fontSize: 12, fontWeight: '700', marginTop: 4 },
+    foodCallBtn: { position: 'absolute', top: 8, right: 8, width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
 
     // Tips
     tipsContainer: { padding: 12, borderRadius: 12, borderWidth: 1 },
     tipItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 },
     tipText: { flex: 1, fontSize: 13 },
+
+    // Share Modal
+    shareOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    shareModal: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 },
+    shareTitle: { fontSize: 18, fontWeight: '700', textAlign: 'center', marginBottom: 20 },
+    shareOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 16 },
+    shareIconBox: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+    shareOptionText: { fontSize: 16, fontWeight: '500' },
+    shareCancel: { borderTopWidth: 1, marginTop: 12, paddingTop: 16, alignItems: 'center' },
+    shareCancelText: { fontSize: 16 },
 });
+
+export default PlannerScreen;

@@ -5,6 +5,7 @@ import { MainTabs } from '../tabs/MainTabs';
 import { FoodMenuScreen } from '@screens/FoodMenuScreen';
 import { CartScreen } from '@screens/CartScreen';
 import { OrderTrackingScreen } from '@screens/OrderTrackingScreen';
+import { VoidTripsScreen } from '@screens/VoidTripsScreen';
 
 const Stack = createNativeStackNavigator<AppStackParamList>();
 
@@ -17,6 +18,11 @@ export const AppStackNavigator = () => (
       name="OrderTracking"
       component={OrderTrackingScreen}
       options={{ title: 'Order Tracking', headerBackVisible: false }}
+    />
+    <Stack.Screen
+      name="VoidTrips"
+      component={VoidTripsScreen}
+      options={{ headerShown: false }}
     />
   </Stack.Navigator>
 );

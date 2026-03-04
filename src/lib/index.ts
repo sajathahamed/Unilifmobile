@@ -17,4 +17,13 @@ export {
     getTripsForUser,
     createTrip,
     updateTripWithAI,
+    // New trip plan functions
+    createTripPlan,
+    getTripPlansForUser,
+    getTripPlanById,
+    voidTripPlan,
+    getVoidedTripPlans,
+    upsertUserGoogle,
 } from './db';
+export type { TripPlanInsert } from './db';
+

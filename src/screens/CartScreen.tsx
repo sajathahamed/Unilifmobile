@@ -16,7 +16,7 @@ import { useCart } from '@context/CartContext';
 import { useAuth } from '@context/AuthContext';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppStackParamList } from '@app-types/index';
-import { createFoodOrder, createFoodOrderItems } from '@lib/index';
+import { createFoodOrder, createFoodOrderItems, supabase } from '@lib/index';
 import { Ionicons } from '@expo/vector-icons';
 
 export type CartScreenProps = NativeStackScreenProps<AppStackParamList, 'Cart'>;
@@ -64,6 +64,12 @@ export const CartScreen: React.FC<CartScreenProps> = ({ navigation }) => {
       setLoading(false);
       return;
     }
+
+    // Update order status to confirmed
+    await supabase
+      .from('food_orders')
+      .update({ status: 'confirmed' })
+      .eq('id', orderData.id);
 
     clearCart();
     setLoading(false);

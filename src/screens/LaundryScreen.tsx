@@ -411,33 +411,39 @@ export const LaundryScreen: React.FC = () => {
 
             {/* Item Picker Modal */}
             <Modal visible={showItemPicker} transparent animationType="fade">
-                <TouchableOpacity 
-                    style={styles.pickerOverlay} 
-                    activeOpacity={1} 
-                    onPress={() => setShowItemPicker(false)}
-                >
+                <View style={styles.pickerOverlay}>
+                    <TouchableOpacity 
+                        style={StyleSheet.absoluteFill} 
+                        activeOpacity={1} 
+                        onPress={() => setShowItemPicker(false)}
+                    />
                     <View style={[styles.pickerModal, { backgroundColor: theme.colors.surface }]}>
-                        <Text style={[styles.modalTitle, { color: theme.colors.text, marginBottom: 12 }]}>
+                        <Text style={[styles.modalTitle, { color: theme.colors.text, marginBottom: 16 }]}>
                             Select Item Type
                         </Text>
-                        <View style={styles.pickerGrid}>
+                        <ScrollView 
+                            showsVerticalScrollIndicator={false}
+                            contentContainerStyle={styles.pickerGrid}
+                        >
                             {CLOTHING_OPTIONS.map((item) => (
                                 <TouchableOpacity
                                     key={item.name}
-                                    style={[styles.pickerItem, { backgroundColor: theme.colors.backgroundSecondary }]}
+                                    style={[styles.pickerItem, { backgroundColor: theme.colors.backgroundSecondary, borderWidth: 1, borderColor: theme.colors.border }]}
                                     onPress={() => addManualItem(item.name)}
                                 >
-                                    <Ionicons 
-                                        name={item.icon as any} 
-                                        size={24} 
-                                        color={theme.colors.primary} 
-                                    />
-                                    <Text style={[styles.pickerItemText, { color: theme.colors.text }]}>
+                                    <View style={styles.pickerIconContainer}>
+                                        <Ionicons 
+                                            name={item.icon as any} 
+                                            size={24} 
+                                            color={theme.colors.primary} 
+                                        />
+                                    </View>
+                                    <Text style={[styles.pickerItemText, { color: theme.colors.text }]} numberOfLines={1}>
                                         {item.name}
                                     </Text>
                                 </TouchableOpacity>
                             ))}
-                        </View>
+                        </ScrollView>
                         <TouchableOpacity 
                             style={[styles.cancelPickerBtn, { borderColor: theme.colors.border }]}
                             onPress={() => setShowItemPicker(false)}
@@ -445,7 +451,7 @@ export const LaundryScreen: React.FC = () => {
                             <Text style={{ color: theme.colors.textSecondary }}>Cancel</Text>
                         </TouchableOpacity>
                     </View>
-                </TouchableOpacity>
+                </View>
             </Modal>
         </SafeAreaView>
     );
@@ -539,27 +545,38 @@ const styles = StyleSheet.create({
     modalBtns: { flexDirection: 'row', gap: 12, marginTop: 8 },
     // Item Picker Modal Styles
     pickerModal: {
-        margin: 20,
+        marginHorizontal: 20,
         borderRadius: 20,
         padding: 20,
-        maxHeight: '80%',
+        maxHeight: '75%',
+        width: '90%',
     },
     pickerGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        gap: 10,
+        gap: 12,
         justifyContent: 'center',
+        paddingBottom: 8,
     },
     pickerItem: {
-        width: 90,
+        width: '45%',
+        maxWidth: 140,
         height: 80,
         borderRadius: 12,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 6,
+        padding: 8,
+        overflow: 'hidden',
+    },
+    pickerIconContainer: {
+        width: 40,
+        height: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 4,
     },
     pickerItemText: {
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: '600',
         textAlign: 'center',
     },

@@ -98,6 +98,11 @@ export const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({ route 
                         <Text style={[styles.amount, { color: theme.colors.primary }]}>
                             RM {Number(order.total ?? 0).toFixed(2)}
                         </Text>
+                        {(order as any).uber_order_id && (
+                            <Text style={[styles.trackingId, { color: theme.colors.textSecondary }]}>
+                                Tracking ID: {(order as any).uber_order_id}
+                            </Text>
+                        )}
                     </Card>
 
                     <Card elevated>
@@ -169,6 +174,7 @@ const styles = StyleSheet.create({
     title: { fontSize: 20, fontWeight: '800' },
     vendor: { fontSize: 14, marginTop: 4 },
     amount: { fontSize: 22, fontWeight: '800', marginTop: 8 },
+    trackingId: { fontSize: 12, marginTop: 8, fontStyle: 'italic' },
     sectionTitle: { fontSize: 16, fontWeight: '700' },
     stepRow: { flexDirection: 'row', marginBottom: 0 },
     stepLeft: { alignItems: 'center', marginRight: 16 },

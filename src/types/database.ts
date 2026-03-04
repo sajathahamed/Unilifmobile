@@ -141,6 +141,7 @@ export interface LaundryOrder {
   created_at: string;
 }
 
+// Extended Trip interface for new Trip Planner
 export interface Trip {
   id: number;
   destination: string | null;
@@ -149,6 +150,82 @@ export interface Trip {
   created_by: number | null;
   status: string | null;
   ai_suggestions?: string | null;
+  // New fields for enhanced trip planner
+  place_id?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  travel_type?: 'solo' | 'couple' | 'family' | 'friends' | null;
+  accommodation_type?: 'budget' | 'standard' | 'luxury' | null;
+  transport_mode?: 'bus' | 'train' | 'car' | 'flight' | null;
+  food_preference?: 'veg' | 'non-veg' | 'mixed' | null;
+  total_estimated_cost?: number | null;
+  ai_summary?: string | null;
+  ai_travel_tips?: string | null;
+  updated_at?: string | null;
+}
+
+// Trip Day Plan
+export interface TripDay {
+  id: number;
+  trip_id: number;
+  day_number: number;
+  activities: TripActivity[];
+  estimated_cost: number;
+  created_at?: string;
+}
+
+// Trip Activity
+export interface TripActivity {
+  time: string;
+  activity: string;
+  description?: string;
+  estimated_cost: number;
+  duration?: string;
+}
+
+// Trip Recommendation
+export interface TripRecommendation {
+  id: number;
+  trip_id: number;
+  type: 'hotel' | 'food' | 'place';
+  name: string;
+  rating?: number;
+  address?: string;
+  photo_url?: string;
+  place_id?: string;
+  price_level?: number;
+  created_at?: string;
+}
+
+// AI Generated Trip Plan
+export interface AITripPlan {
+  summary: string;
+  daily_plan: {
+    day: number;
+    theme?: string;
+    activities: TripActivity[];
+    estimated_cost: number;
+  }[];
+  total_estimated_cost: number;
+  recommended_hotels: {
+    name: string;
+    reason?: string;
+    estimated_cost_per_night?: number;
+  }[];
+  recommended_food_places: {
+    name: string;
+    cuisine?: string;
+    meal_type?: string;
+    estimated_cost?: number;
+  }[];
+  travel_tips: string[];
+  budget_breakdown?: {
+    accommodation?: number;
+    food?: number;
+    attractions?: number;
+    transport?: number;
+    miscellaneous?: number;
+  };
 }
 
 export interface TripItinerary {

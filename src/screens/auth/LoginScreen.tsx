@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, TouchableWithoutFeedback, Keyboard } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '@app-types/index';
 import { useTheme } from '@theme/index';
@@ -15,6 +16,7 @@ export type LoginScreenProps = NativeStackScreenProps<AuthStackParamList, 'Login
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const { signIn, signInWithGoogle, loading } = useAuth();
   const { showToast } = useToast();
 
@@ -35,15 +37,29 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
     }
   };
 
+  const scrollPaddingTop = insets.top + 28;
+  const scrollPaddingBottom = Math.max(insets.bottom, 24) + 16;
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: theme.colors.background }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 20}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <ResponsiveContainer>
-          <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[
+              styles.scrollContent,
+              {
+                paddingTop: scrollPaddingTop,
+                paddingBottom: scrollPaddingBottom,
+              },
+            ]}
+          >
             <View style={styles.container}>
               <View style={styles.header}>
                 <Text style={[styles.title, { color: theme.colors.text }]}>Welcome back 👋</Text>
@@ -157,13 +173,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
+  },
   container: {
     flex: 1,
-    padding: 24,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 8,
   },
   header: {
-    marginBottom: 40,
+    marginBottom: 32,
   },
   title: {
     fontSize: 32,

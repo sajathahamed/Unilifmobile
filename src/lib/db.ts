@@ -45,24 +45,139 @@ export const getOpenVendors = async () => {
     const { data, error } = await supabase
         .from('food_stalls')
         .select('*')
-        .eq('is_open', true);
+        .eq('is_open', true)
+        .order('shop_name', { ascending: true });
     return { data, error };
 };
 
+export const getFoodCourtStalls = async () => {
+    // Fetch all stalls
+    const { data: stalls, error: stallError } = await supabase
+        .from('food_stalls')
+        .select('*')
+        .order('shop_name', { ascending: true });
+
+    if (stallError) {
+        return { data: null, error: stallError };
+    }
+
+    // Fetch items, categories, and users to map owner_email -> user.id
+    const [itemsRes, catRes, usersRes] = await Promise.all([
+        supabase.from('food_items').select('id, vendor_id, name, price, image_url, is_available, category_id'),
+        supabase.from('food_categories').select('id, vendor_id, name'),
+        supabase.from('users').select('id, email')
+    ]);
+
+    const items = itemsRes.data || [];
+    const categories = catRes.data || [];
+    const users = usersRes.data || [];
+
+    // Map items mapping vendor_id -> user.id instead of stall.id
+    const joinedData = stalls.map(stall => {
+        const user = users.find(u => u.email === stall.owner_email);
+        const stallVendorId = user ? user.id : stall.id; // fallback to stall.id if user not found
+
+        return {
+            ...stall,
+            food_items: items.filter(item => item.vendor_id === stallVendorId),
+            food_categories: categories.filter(cat => cat.vendor_id === stallVendorId)
+        };
+    });
+
+    return { data: joinedData, error: null };
+};
+
+/** Single row from `food_stalls` (restaurant header on menu / cart). */
+export const getFoodStallById = async (stallId: number) => {
+    const { data, error } = await supabase.from('food_stalls').select('*').eq('id', stallId).maybeSingle();
+    return { data, error };
+};
+
+const getVendorUserIdByStallId = async (stallId: number): Promise<number> => {
+    const { data: stall } = await supabase.from('food_stalls').select('owner_email').eq('id', stallId).maybeSingle();
+    if (!stall || !stall.owner_email) return stallId;
+    const { data: user } = await supabase.from('users').select('id').eq('email', stall.owner_email).maybeSingle();
+    return user ? user.id : stallId;
+};
+
 // ── Food Items ────────────────────────────────────────────
-export const getFoodItemsByVendor = async (vendorId: number) => {
-    const { data, error } = await supabase
+export const getFoodItemsByVendor = async (stallId: number) => {
+    const vendorId = await getVendorUserIdByStallId(stallId);
+    
+    const { data: items, error: itemsError } = await supabase
         .from('food_items')
-        .select(`
-      *,
-      food_categories (
-        name
-      )
-    `)
+        .select('*')
         .eq('vendor_id', vendorId)
         .eq('is_available', true)
         .order('name');
-    return { data, error };
+        
+    if (itemsError) return { data: null, error: itemsError };
+    
+    const { data: categories } = await supabase.from('food_categories').select('*').eq('vendor_id', vendorId);
+    
+    const joined = items?.map((item: any) => ({
+        ...item,
+        food_categories: categories?.find(c => c.id === item.category_id) || { name: 'Other' }
+    })) || [];
+    
+    return { data: joined, error: null };
+};
+
+/** Menu grouped by `food_categories` with nested `food_items` (per restaurant / vendor). */
+export interface FoodCategoryWithItems {
+    id: number;
+    vendor_id: number | null;
+    name: string | null;
+    food_items: Array<{
+        id: number;
+        vendor_id: number | null;
+        category_id: number | null;
+        name: string | null;
+        price: number | null;
+        image_url: string | null;
+        is_available: boolean | null;
+    }> | null;
+}
+
+export const getFoodMenuByVendor = async (stallId: number) => {
+    const vendorId = await getVendorUserIdByStallId(stallId);
+
+    const { data: categories, error: catError } = await supabase
+        .from('food_categories')
+        .select('*')
+        .eq('vendor_id', vendorId)
+        .order('name', { ascending: true });
+        
+    const { data: items } = await supabase
+        .from('food_items')
+        .select('*')
+        .eq('vendor_id', vendorId);
+
+    // If categories fetch failed or is empty, we still want to show items if they exist
+    if (catError || !categories || categories.length === 0) {
+        if (items && items.length > 0) {
+            return {
+                data: [{
+                    id: 9999,
+                    vendor_id: vendorId,
+                    name: 'Menu',
+                    food_items: items.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }))
+                }],
+                error: null
+            };
+        }
+        return { data: null, error: catError };
+    }
+
+    const sorted: FoodCategoryWithItems[] = categories.map((cat) => {
+        const catItems = items ? items.filter(it => it.category_id === cat.id) : [];
+        return {
+            ...cat,
+            food_items: catItems.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }))
+        };
+    });
+
+    return { data: sorted, error: null };
 };
 
 // ── Food Orders ───────────────────────────────────────────

@@ -1,8 +1,52 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// Prefer environment variable; fallback to provided key if not set.
-const API_KEY = process.env.GENAI_API_KEY || 'AIzaSyAm4kBgwFmITj3Glwkxlv4xEU8Vt5GRhq4';
-const genAI = new GoogleGenerativeAI(API_KEY);
+/**
+ * Google Generative AI (Gemini) API key resolution.
+ * Expo bundles only `EXPO_PUBLIC_*` vars — use EXPO_PUBLIC_GOOGLE_GENERATIVE_AI_API_KEY in .env for the app.
+ * `GOOGLE_GENERATIVE_AI_API_KEY` without prefix is checked for tooling; it is not available in Expo client unless duplicated as EXPO_PUBLIC_*.
+ */
+function resolveGoogleGenerativeAiApiKey(): string {
+    return (
+        process.env.EXPO_PUBLIC_GOOGLE_GENERATIVE_AI_API_KEY ||
+        process.env.EXPO_PUBLIC_GENAI_API_KEY ||
+        process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
+        process.env.GENAI_API_KEY ||
+        ''
+    );
+}
+
+const API_KEY = resolveGoogleGenerativeAiApiKey();
+const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
+
+/** True when a Gemini key is configured (for laundry image analysis, etc.). */
+export function isGeminiConfigured(): boolean {
+    return !!resolveGoogleGenerativeAiApiKey();
+}
+
+const MISSING_KEY_HINT =
+    'Set EXPO_PUBLIC_GOOGLE_GENERATIVE_AI_API_KEY (or EXPO_PUBLIC_GENAI_API_KEY) in .env and restart Expo.';
+
+/** gemini-1.5-flash often returns 404 on current API; use 2.5 family. https://ai.google.dev/gemini-api/docs/models/gemini */
+const GEMINI_MODEL_FALLBACKS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-flash-latest'] as const;
+
+function configuredGeminiModel(): string {
+    return (
+        process.env.EXPO_PUBLIC_GOOGLE_GENERATIVE_AI_MODEL ||
+        process.env.EXPO_PUBLIC_GENAI_MODEL ||
+        process.env.GENAI_MODEL ||
+        'gemini-2.5-flash'
+    );
+}
+
+function geminiModelCandidates(): string[] {
+    const preferred = configuredGeminiModel();
+    return [...new Set([preferred, ...GEMINI_MODEL_FALLBACKS])];
+}
+
+function isGeminiModelNotFoundError(err: unknown): boolean {
+    const msg = String((err as Error)?.message ?? err);
+    return msg.includes('404') && (msg.includes('not found') || msg.includes('is not found'));
+}
 
 /**
  * Detects clothing items and their counts from a base64 image.
@@ -10,43 +54,15 @@ const genAI = new GoogleGenerativeAI(API_KEY);
  * @param mimeType The format of the image (e.g., 'image/jpeg').
  */
 export const detectClothing = async (base64Data: string, mimeType: string = "image/jpeg") => {
-    try {
-        // Strip any base64 prefix if it exists
-        const cleanBase64 = base64Data.includes("base64,")
-            ? base64Data.split("base64,")[1]
-            : base64Data;
+    const cleanBase64 = base64Data.includes("base64,")
+        ? base64Data.split("base64,")[1]
+        : base64Data;
 
-        const DEFAULT_MODEL = process.env.GENAI_MODEL || "gemini-1.5-flash";
+    if (!genAI) {
+        throw new Error(`Gemini API key missing. ${MISSING_KEY_HINT}`);
+    }
 
-        const resolveModel = async (modelName: string) => {
-            try {
-                return genAI.getGenerativeModel({ model: modelName });
-            } catch (err) {
-                // Try to discover a supported model via listModels if available
-                try {
-                    if (typeof (genAI as any).listModels === 'function') {
-                        const list = await (genAI as any).listModels();
-                        // list may be { models: [...] } or an array depending on SDK version
-                        const models = list?.models ?? list;
-                        const candidate = (models || []).find((m: any) => {
-                            const name = m?.name || m;
-                            if (!name) return false;
-                            // prefer any gemini model that contains 'gemini' in the name
-                            return String(name).toLowerCase().includes('gemini');
-                        });
-                        const pick = candidate?.name ?? candidate;
-                        if (pick) return genAI.getGenerativeModel({ model: pick });
-                    }
-                } catch (e) {
-                    // ignore discovery errors, rethrow original
-                }
-                throw err;
-            }
-        };
-
-        const model = await resolveModel(DEFAULT_MODEL);
-
-        const prompt = `
+    const prompt = `
       Analyze this image of laundry/clothing. 
       Identify all distinct types of clothing (e.g., T-shirt, Jeans, Socks, Dress, Jacket, etc.).
       Count how many of each category are present.
@@ -56,30 +72,50 @@ export const detectClothing = async (base64Data: string, mimeType: string = "ima
       Do not include any markdown formatting or extra text, just the JSON.
     `;
 
-        const result = await model.generateContent([
-            prompt,
-            {
-                inlineData: {
-                    data: cleanBase64,
-                    mimeType,
-                },
+    const contentPayload = [
+        prompt,
+        {
+            inlineData: {
+                data: cleanBase64,
+                mimeType,
             },
-        ]);
+        },
+    ] as const;
 
-        const response = await result.response;
-        const text = response.text().trim();
-        console.log("Gemini Raw Response:", text);
+    let lastError: unknown;
+    for (const modelName of geminiModelCandidates()) {
+        try {
+            const model = genAI.getGenerativeModel({ model: modelName });
+            const result = await model.generateContent([...contentPayload]);
+            const response = await result.response;
+            const text = response.text().trim();
+            console.log(`Gemini (${modelName}) laundry response:`, text);
 
-        // Clean up markdown if AI included it
-        const jsonString = text.replace(/```json|```/g, "").trim();
-        return JSON.parse(jsonString) as Record<string, number>;
-    } catch (error: any) {
-        console.error("Gemini detectClothing Error:", error);
-        if (error.response) {
-            console.error("Gemini Error Response:", await error.response.text());
+            const cleaned = text.replace(/```json|```/g, '').trim();
+            try {
+                return JSON.parse(cleaned) as Record<string, number>;
+            } catch {
+                const match = cleaned.match(/\{[\s\S]*\}/);
+                if (match) {
+                    return JSON.parse(match[0]) as Record<string, number>;
+                }
+                throw new Error('Gemini response was not valid JSON');
+            }
+        } catch (err: unknown) {
+            if (isGeminiModelNotFoundError(err)) {
+                console.warn(`Gemini model "${modelName}" unavailable (404), trying next…`);
+                lastError = err;
+                continue;
+            }
+            console.error('Gemini detectClothing Error:', err);
+            throw err;
         }
-        throw error;
     }
+
+    console.error('Gemini detectClothing Error:', lastError);
+    throw lastError instanceof Error
+        ? lastError
+        : new Error('All Gemini model candidates failed. Set EXPO_PUBLIC_GOOGLE_GENERATIVE_AI_MODEL in .env.');
 };
 
 /**
@@ -87,12 +123,15 @@ export const detectClothing = async (base64Data: string, mimeType: string = "ima
  */
 export const generateItinerary = async (destination: string, days: number, budget: number) => {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        if (!genAI) {
+            throw new Error(`Gemini API key missing. ${MISSING_KEY_HINT}`);
+        }
+        const model = genAI.getGenerativeModel({ model: configuredGeminiModel() });
 
         const prompt = `
       Create a travel itinerary for a trip to ${destination}.
       Duration: ${days} days.
-      Budget: RM ${budget}.
+      Budget: RS ${budget}.
       Provide daily activities, recommended local food, and estimated costs for major items.
       Format the response in a beautiful, structured Markdown format with headings for each day.
       Include a "Budget Breakdown" section at the end.

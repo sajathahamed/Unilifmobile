@@ -33,7 +33,8 @@ export type LaundryOrderWithShop = LaundryOrder & {
 };
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { detectClothing } from '@services/openai';
+import { detectClothing as detectClothingGemini, isGeminiConfigured } from '@services/gemini';
+import { detectClothing as detectClothingHf } from '@services/openai';
 
 const STATUS_VARIANT: Record<string, 'primary' | 'success' | 'warning' | 'error'> = {
     pending: 'warning',
@@ -137,7 +138,19 @@ export const LaundryScreen: React.FC = () => {
             if (!result.canceled && result.assets[0].base64) {
                 setDetecting(true);
                 try {
-                    const items = await detectClothing(result.assets[0].base64);
+                    const b64 = result.assets[0].base64;
+                    const useGemini = isGeminiConfigured();
+                    let items: Record<string, number> = {};
+                    if (useGemini) {
+                        try {
+                            items = await detectClothingGemini(b64);
+                        } catch (geminiErr) {
+                            console.warn('Gemini laundry detection failed, trying Hugging Face:', geminiErr);
+                            items = await detectClothingHf(b64);
+                        }
+                    } else {
+                        items = await detectClothingHf(b64);
+                    }
                     if (Object.keys(items).length > 0) {
                         setDetectedItems(prev => {
                             // Merge with existing items
@@ -580,8 +593,8 @@ export const LaundryScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
     safe: { flex: 1 },
-    scrollContent: { paddingHorizontal: 16, paddingBottom: 32 },
-    listContent: { paddingHorizontal: 16, paddingBottom: 32 },
+    scrollContent: { paddingHorizontal: 16, paddingBottom: 120 },
+    listContent: { paddingHorizontal: 16, paddingBottom: 120 },
     listHeader: { marginBottom: 12 },
     errorBanner: {
         marginBottom: 20,

@@ -711,7 +711,7 @@ export const PlannerScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
                     <FlatList
                         data={trips}
                         keyExtractor={(item) => String(item.id)}
-                        contentContainerStyle={{ padding: 16 }}
+                        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
                         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
                         refreshControl={
                             <RefreshControl

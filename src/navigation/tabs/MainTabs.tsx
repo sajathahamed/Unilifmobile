@@ -183,10 +183,10 @@ export const MainTabs = () => {
         headerShown: false,
       }}
     >
+      <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Food" component={FoodVendorsScreen} options={{ title: 'Food' }} />
       <Tab.Screen name="Laundry" component={LaundryScreen} />
-      <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Planner" component={PlannerScreen} options={{ title: 'Trip Planning' }} />
+      <Tab.Screen name="Planner" component={PlannerScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );

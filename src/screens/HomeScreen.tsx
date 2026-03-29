@@ -306,7 +306,7 @@ export const HomeScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 32, paddingTop: 12 },
+  scrollContent: { paddingHorizontal: 20, paddingBottom: 120, paddingTop: 12 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',

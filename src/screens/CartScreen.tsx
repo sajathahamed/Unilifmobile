@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,8 @@ import { useCart } from '@context/CartContext';
 import { useAuth } from '@context/AuthContext';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppStackParamList } from '@app-types/index';
-import { createFoodOrder, createFoodOrderItems, supabase } from '@lib/index';
+import { createFoodOrder, createFoodOrderItems, supabase, getFoodStallById } from '@lib/index';
+import { FoodStall } from '@app-types/database';
 import { Ionicons } from '@expo/vector-icons';
 import { sendDialogSms } from '@services/smsService';
 import { Input } from '@components/ui/Input';
@@ -29,6 +30,21 @@ export const CartScreen: React.FC<CartScreenProps> = ({ navigation }) => {
   const { userProfile } = useAuth();
   const [loading, setLoading] = useState(false);
   const [phone, setPhone] = useState('');
+  const [stall, setStall] = useState<FoodStall | null>(null);
+
+  const loadStall = useCallback(async () => {
+    if (cartItems.length === 0) {
+      setStall(null);
+      return;
+    }
+    const id = Number(cartItems[0].vendorId);
+    const { data } = await getFoodStallById(id);
+    setStall(data ? (data as FoodStall) : null);
+  }, [cartItems]);
+
+  useEffect(() => {
+    loadStall();
+  }, [loadStall]);
 
   const handleCheckout = async () => {
     if (!userProfile?.id || cartItems.length === 0) return;
@@ -117,9 +133,28 @@ export const CartScreen: React.FC<CartScreenProps> = ({ navigation }) => {
         <View style={styles.header}>
           <Text style={[styles.title, { color: theme.colors.text }]}>Your Cart</Text>
           <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
-            {cartItems[0]?.vendorName}
+            {stall?.shop_name || cartItems[0]?.vendorName}
           </Text>
         </View>
+
+        {stall ? (
+          <Card elevation="sm" variant="secondary" border={false} style={styles.stallCard}>
+            <Text style={[styles.stallCardTitle, { color: theme.colors.text }]}>Restaurant details</Text>
+            {stall.owner_name ? (
+              <Text style={[styles.stallLine, { color: theme.colors.textSecondary }]}>
+                Owner: {stall.owner_name}
+              </Text>
+            ) : null}
+            {stall.phone ? (
+              <Text style={[styles.stallLine, { color: theme.colors.textSecondary }]}>Phone: {stall.phone}</Text>
+            ) : null}
+            {[stall.area, stall.city, stall.address].filter(Boolean).length > 0 ? (
+              <Text style={[styles.stallLine, { color: theme.colors.textSecondary }]} numberOfLines={2}>
+                {[stall.area, stall.city, stall.address].filter(Boolean).join(' · ')}
+              </Text>
+            ) : null}
+          </Card>
+        ) : null}
 
         <FlatList
           data={cartItems}
@@ -206,6 +241,9 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 16 },
   title: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },
   subtitle: { fontSize: 16, marginTop: 4, opacity: 0.7 },
+  stallCard: { marginHorizontal: 16, marginBottom: 8, padding: 14, borderRadius: 16 },
+  stallCardTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' },
+  stallLine: { fontSize: 13, marginBottom: 4 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 32 },
   emptyTitle: { fontSize: 20, fontWeight: '800', marginTop: 12 },
   row: { flexDirection: 'row', alignItems: 'center' },

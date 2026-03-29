@@ -3,7 +3,10 @@ export { signInWithGoogle, onAuthStateChange } from './google-auth';
 export {
     getTimetableForStudent,
     getOpenVendors,
+    getFoodCourtStalls,
+    getFoodStallById,
     getFoodItemsByVendor,
+    getFoodMenuByVendor,
     createFoodOrder,
     createFoodOrderItems,
     getFoodOrderById,
@@ -29,5 +32,5 @@ export {
     createTimetableEntry,
     getCourses,
 } from './db';
-export type { TripPlanInsert } from './db';
+export type { TripPlanInsert, FoodCategoryWithItems } from './db';
 

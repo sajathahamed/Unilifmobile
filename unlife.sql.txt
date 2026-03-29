@@ -1,261 +1,437 @@
--- =========================================
--- University Life Management System
--- Supabase / PostgreSQL Compatible Schema
--- =========================================
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
 
-
--- ============
--- ENUM TYPES
--- ============
-CREATE TYPE user_role AS ENUM (
-  'student','lecturer','admin','vendor','delivery','super_admin'
+CREATE TABLE public.announcements (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  title text NOT NULL,
+  body text NOT NULL,
+  target_audience text,
+  created_by integer,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT announcements_pkey PRIMARY KEY (id),
+  CONSTRAINT announcements_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
 );
-
-CREATE TYPE shop_status AS ENUM ('open','closed');
-
-
--- =====================
--- UNIVERSITY & USERS
--- =====================
-CREATE TABLE universities (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(100) NOT NULL,
-  city VARCHAR(100),
-  is_active BOOLEAN DEFAULT TRUE
+CREATE TABLE public.app_pages (
+  id smallint NOT NULL,
+  path text NOT NULL UNIQUE,
+  label text NOT NULL,
+  role text NOT NULL CHECK (role = ANY (ARRAY['student'::text, 'lecturer'::text, 'admin'::text, 'vendor'::text, 'vendor-food'::text, 'vendor-laundry'::text, 'delivery'::text, 'super_admin'::text])),
+  icon text NOT NULL,
+  sort_order smallint NOT NULL DEFAULT 0,
+  CONSTRAINT app_pages_pkey PRIMARY KEY (id)
 );
-
-CREATE TABLE users (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(100) NOT NULL,
-  email VARCHAR(100) UNIQUE NOT NULL,
-  role user_role NOT NULL,
-  uni_id INT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (uni_id) REFERENCES universities(id)
+CREATE TABLE public.assignment_submissions (
+  id bigint NOT NULL DEFAULT nextval('assignment_submissions_id_seq'::regclass),
+  assignment_id bigint NOT NULL,
+  student_id integer NOT NULL,
+  content text,
+  submitted_at timestamp with time zone DEFAULT now(),
+  grade numeric,
+  feedback text,
+  status character varying DEFAULT 'submitted'::character varying CHECK (status::text = ANY (ARRAY['submitted'::character varying, 'graded'::character varying]::text[])),
+  file_url text,
+  file_name character varying,
+  CONSTRAINT assignment_submissions_pkey PRIMARY KEY (id),
+  CONSTRAINT assignment_submissions_assignment_id_fkey FOREIGN KEY (assignment_id) REFERENCES public.assignments(id),
+  CONSTRAINT assignment_submissions_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.users(id)
 );
-
-
--- =====================
--- ACADEMIC MODULE
--- =====================
-CREATE TABLE courses (
-  id SERIAL PRIMARY KEY,
-  course_code VARCHAR(50),
-  course_name VARCHAR(100),
-  lecturer VARCHAR(100),
-  colour VARCHAR(20)
+CREATE TABLE public.assignments (
+  id bigint NOT NULL DEFAULT nextval('assignments_id_seq'::regclass),
+  course_id integer NOT NULL,
+  title character varying NOT NULL,
+  description text,
+  due_date timestamp with time zone,
+  created_by integer NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT assignments_pkey PRIMARY KEY (id),
+  CONSTRAINT assignments_course_id_fkey FOREIGN KEY (course_id) REFERENCES public.courses(id),
+  CONSTRAINT assignments_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
 );
-
-CREATE TABLE timetable (
-  id SERIAL PRIMARY KEY,
-  student_id INT,
-  course_id INT,
-  day_of_week VARCHAR(20),
-  start_time TIME,
-  end_time TIME,
-  location VARCHAR(100),
-  FOREIGN KEY (student_id) REFERENCES users(id),
-  FOREIGN KEY (course_id) REFERENCES courses(id)
+CREATE TABLE public.cart_items (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id integer NOT NULL,
+  cart_type text NOT NULL CHECK (cart_type = ANY (ARRAY['food'::text, 'laundry'::text])),
+  shop_ref text NOT NULL,
+  item_ref text NOT NULL,
+  qty integer NOT NULL CHECK (qty > 0),
+  unit_price numeric NOT NULL DEFAULT 0,
+  item_name text NOT NULL,
+  item_description text,
+  item_emoji text,
+  status text NOT NULL DEFAULT 'active'::text CHECK (status = ANY (ARRAY['active'::text, 'checked_out'::text, 'removed'::text])),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT cart_items_pkey PRIMARY KEY (id),
+  CONSTRAINT cart_items_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
-
-
--- =====================
--- SHOP MODULE
--- =====================
-CREATE TABLE shops (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(100),
-  owner_id INT,
-  shop_type VARCHAR(50),
-  status shop_status,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (owner_id) REFERENCES users(id)
+CREATE TABLE public.courses (
+  id integer NOT NULL DEFAULT nextval('courses_id_seq'::regclass),
+  course_code character varying,
+  course_name character varying,
+  lecturer character varying,
+  colour character varying,
+  CONSTRAINT courses_pkey PRIMARY KEY (id)
 );
-
-CREATE TABLE shop_orders (
-  id SERIAL PRIMARY KEY,
-  shop_id INT,
-  student_id INT,
-  total_amount DECIMAL(10,2),
-  status VARCHAR(50),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (shop_id) REFERENCES shops(id),
-  FOREIGN KEY (student_id) REFERENCES users(id)
+CREATE TABLE public.deliveries (
+  id integer NOT NULL DEFAULT nextval('deliveries_id_seq'::regclass),
+  order_id integer,
+  delivery_agent_id integer,
+  status character varying,
+  updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT deliveries_pkey PRIMARY KEY (id),
+  CONSTRAINT deliveries_delivery_agent_id_fkey FOREIGN KEY (delivery_agent_id) REFERENCES public.delivery_agents(id)
 );
-
-CREATE TABLE shop_earnings (
-  id SERIAL PRIMARY KEY,
-  shop_id INT,
-  order_id INT,
-  amount DECIMAL(10,2),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (shop_id) REFERENCES shops(id),
-  FOREIGN KEY (order_id) REFERENCES shop_orders(id)
+CREATE TABLE public.delivery_agents (
+  id integer NOT NULL DEFAULT nextval('delivery_agents_id_seq'::regclass),
+  name character varying,
+  phone character varying,
+  is_available boolean DEFAULT true,
+  CONSTRAINT delivery_agents_pkey PRIMARY KEY (id)
 );
-
-
--- =====================
--- DELIVERY MODULE
--- =====================
-CREATE TABLE delivery_agents (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(100),
-  phone VARCHAR(20),
-  is_available BOOLEAN DEFAULT TRUE
+CREATE TABLE public.food_categories (
+  id integer NOT NULL DEFAULT nextval('food_categories_id_seq'::regclass),
+  vendor_id integer,
+  name character varying,
+  CONSTRAINT food_categories_pkey PRIMARY KEY (id)
 );
-
-CREATE TABLE deliveries (
-  id SERIAL PRIMARY KEY,
-  order_id INT,
-  delivery_agent_id INT,
-  status VARCHAR(50),
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (order_id) REFERENCES shop_orders(id),
-  FOREIGN KEY (delivery_agent_id) REFERENCES delivery_agents(id)
+CREATE TABLE public.food_items (
+  id integer NOT NULL DEFAULT nextval('food_items_id_seq'::regclass),
+  vendor_id integer,
+  category_id integer,
+  name character varying,
+  price numeric,
+  image_url character varying,
+  is_available boolean DEFAULT true,
+  CONSTRAINT food_items_pkey PRIMARY KEY (id),
+  CONSTRAINT food_items_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.food_categories(id)
 );
-
-
--- =====================
--- FOOD MODULE
--- =====================
-CREATE TABLE vendors (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(100),
-  type VARCHAR(50),
-  location VARCHAR(100),
-  is_open BOOLEAN DEFAULT TRUE,
-  rating DECIMAL(2,1),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE public.food_order_items (
+  id integer NOT NULL DEFAULT nextval('food_order_items_id_seq'::regclass),
+  order_id integer,
+  food_id integer,
+  qty integer,
+  price numeric,
+  CONSTRAINT food_order_items_pkey PRIMARY KEY (id),
+  CONSTRAINT food_order_items_food_id_fkey FOREIGN KEY (food_id) REFERENCES public.food_items(id)
 );
-
-CREATE TABLE food_categories (
-  id SERIAL PRIMARY KEY,
-  vendor_id INT,
-  name VARCHAR(100),
-  FOREIGN KEY (vendor_id) REFERENCES vendors(id)
+CREATE TABLE public.food_orders (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  food_stall_id bigint NOT NULL,
+  order_ref text,
+  customer_name text NOT NULL,
+  customer_phone text,
+  customer_email text,
+  items jsonb NOT NULL DEFAULT '[]'::jsonb,
+  total numeric NOT NULL DEFAULT 0,
+  status text NOT NULL DEFAULT 'new'::text CHECK (status = ANY (ARRAY['new'::text, 'preparing'::text, 'ready'::text, 'completed'::text, 'cancelled'::text])),
+  delivery_address text,
+  notes text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT food_orders_pkey PRIMARY KEY (id),
+  CONSTRAINT food_orders_food_stall_id_fkey FOREIGN KEY (food_stall_id) REFERENCES public.food_stalls(id)
 );
-
-CREATE TABLE food_items (
-  id SERIAL PRIMARY KEY,
-  vendor_id INT,
-  category_id INT,
-  name VARCHAR(100),
-  price DECIMAL(10,2),
-  image_url VARCHAR(255),
-  is_available BOOLEAN DEFAULT TRUE,
-  FOREIGN KEY (vendor_id) REFERENCES vendors(id),
-  FOREIGN KEY (category_id) REFERENCES food_categories(id)
+CREATE TABLE public.food_stalls (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  shop_name text NOT NULL,
+  owner_name text NOT NULL,
+  owner_email text NOT NULL,
+  phone text,
+  whatsapp text,
+  address text,
+  city text,
+  area text,
+  lat double precision,
+  lng double precision,
+  description text,
+  opening_time time without time zone,
+  closing_time time without time zone,
+  days_open ARRAY,
+  category text,
+  logo text,
+  banner text,
+  gallery ARRAY,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  vendor_type text DEFAULT 'vendor-food'::text,
+  is_open boolean DEFAULT true,
+  CONSTRAINT food_stalls_pkey PRIMARY KEY (id)
 );
-
-CREATE TABLE food_orders (
-  id SERIAL PRIMARY KEY,
-  student_id INT,
-  vendor_id INT,
-  total DECIMAL(10,2),
-  status VARCHAR(50),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (student_id) REFERENCES users(id),
-  FOREIGN KEY (vendor_id) REFERENCES vendors(id)
+CREATE TABLE public.laundry_orders (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  laundry_shop_id bigint NOT NULL,
+  order_ref text,
+  customer_name text NOT NULL,
+  customer_phone text,
+  items_description text,
+  total numeric NOT NULL DEFAULT 0,
+  status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'in_progress'::text, 'ready'::text, 'completed'::text, 'cancelled'::text])),
+  pickup_address text,
+  delivery_address text,
+  notes text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT laundry_orders_pkey PRIMARY KEY (id),
+  CONSTRAINT laundry_orders_laundry_shop_id_fkey FOREIGN KEY (laundry_shop_id) REFERENCES public.laundry_shops(id)
 );
-
-CREATE TABLE food_order_items (
-  id SERIAL PRIMARY KEY,
-  order_id INT,
-  food_id INT,
-  qty INT,
-  price DECIMAL(10,2),
-  FOREIGN KEY (order_id) REFERENCES food_orders(id),
-  FOREIGN KEY (food_id) REFERENCES food_items(id)
+CREATE TABLE public.laundry_services (
+  id integer NOT NULL DEFAULT nextval('laundry_services_id_seq'::regclass),
+  name character varying,
+  location character varying,
+  price_per_kg numeric,
+  price_per_item numeric,
+  pickup_available boolean DEFAULT true,
+  CONSTRAINT laundry_services_pkey PRIMARY KEY (id)
 );
-
-
--- =====================
--- LAUNDRY MODULE
--- =====================
-CREATE TABLE laundry_services (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(100),
-  location VARCHAR(100),
-  price_per_kg DECIMAL(10,2),
-  price_per_item DECIMAL(10,2),
-  pickup_available BOOLEAN DEFAULT TRUE
+CREATE TABLE public.laundry_shops (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  shop_name text NOT NULL,
+  owner_name text NOT NULL,
+  owner_email text NOT NULL,
+  phone text,
+  whatsapp text,
+  address text,
+  city text,
+  area text,
+  lat double precision,
+  lng double precision,
+  services ARRAY,
+  price_list jsonb,
+  pickup_delivery boolean DEFAULT true,
+  delivery_radius numeric,
+  opening_time time without time zone,
+  closing_time time without time zone,
+  logo text,
+  banner text,
+  gallery ARRAY,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  vendor_type text DEFAULT 'vendor-laundry'::text,
+  is_open boolean DEFAULT true,
+  CONSTRAINT laundry_shops_pkey PRIMARY KEY (id)
 );
-
-CREATE TABLE laundry_orders (
-  id SERIAL PRIMARY KEY,
-  student_id INT,
-  laundry_service_id INT,
-  order_type VARCHAR(50),
-  total_price DECIMAL(10,2),
-  status VARCHAR(50),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (student_id) REFERENCES users(id),
-  FOREIGN KEY (laundry_service_id) REFERENCES laundry_services(id)
+CREATE TABLE public.notifications (
+  id integer NOT NULL DEFAULT nextval('notifications_id_seq'::regclass),
+  user_id integer,
+  title character varying,
+  message text,
+  is_read boolean DEFAULT false,
+  created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  type text,
+  entity_type text,
+  entity_id text,
+  action_url text,
+  metadata jsonb,
+  CONSTRAINT notifications_pkey PRIMARY KEY (id),
+  CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
-
-
--- =====================
--- TOURISM / TRIPS MODULE
--- =====================
-CREATE TABLE trips (
-  id SERIAL PRIMARY KEY,
-  destination VARCHAR(100),
-  days INT,
-  estimated_budget DECIMAL(10,2),
-  created_by INT,
-  status VARCHAR(50),
-  FOREIGN KEY (created_by) REFERENCES users(id)
+CREATE TABLE public.platform_stats (
+  id integer NOT NULL DEFAULT nextval('platform_stats_id_seq'::regclass),
+  total_users integer,
+  total_orders integer,
+  total_revenue numeric,
+  generated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT platform_stats_pkey PRIMARY KEY (id)
 );
-
-CREATE TABLE trip_itinerary (
-  id SERIAL PRIMARY KEY,
-  trip_id INT,
-  day_number INT,
-  activity TEXT,
-  FOREIGN KEY (trip_id) REFERENCES trips(id)
+CREATE TABLE public.rider_profiles (
+  user_id bigint NOT NULL,
+  phone text,
+  CONSTRAINT rider_profiles_pkey PRIMARY KEY (user_id),
+  CONSTRAINT rider_profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
 );
-
-CREATE TABLE trip_members (
-  id SERIAL PRIMARY KEY,
-  trip_id INT,
-  student_id INT,
-  joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (trip_id) REFERENCES trips(id),
-  FOREIGN KEY (student_id) REFERENCES users(id)
+CREATE TABLE public.role_page_permissions (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  role text NOT NULL CHECK (role = ANY (ARRAY['student'::text, 'lecturer'::text, 'admin'::text, 'vendor'::text, 'vendor-food'::text, 'vendor-laundry'::text, 'delivery'::text, 'super_admin'::text])),
+  page_id smallint NOT NULL,
+  enabled boolean NOT NULL DEFAULT true,
+  CONSTRAINT role_page_permissions_pkey PRIMARY KEY (id),
+  CONSTRAINT role_page_permissions_page_id_fkey FOREIGN KEY (page_id) REFERENCES public.app_pages(id)
 );
-
-
--- =====================
--- NOTIFICATIONS
--- =====================
-CREATE TABLE notifications (
-  id SERIAL PRIMARY KEY,
-  user_id INT,
-  title VARCHAR(100),
-  message TEXT,
-  is_read BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id)
+CREATE TABLE public.system_settings (
+  key text NOT NULL,
+  value text NOT NULL DEFAULT ''::text,
+  CONSTRAINT system_settings_pkey PRIMARY KEY (key)
 );
-
-
--- =====================
--- PLATFORM STATS
--- =====================
-CREATE TABLE platform_stats (
-  id SERIAL PRIMARY KEY,
-  total_users INT,
-  total_orders INT,
-  total_revenue DECIMAL(12,2),
-  generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE public.timetable (
+  id integer NOT NULL DEFAULT nextval('timetable_id_seq'::regclass),
+  student_id integer,
+  course_id integer,
+  day_of_week character varying,
+  start_time time without time zone,
+  end_time time without time zone,
+  location character varying,
+  academic_year character varying,
+  CONSTRAINT timetable_pkey PRIMARY KEY (id),
+  CONSTRAINT timetable_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.users(id),
+  CONSTRAINT timetable_course_id_fkey FOREIGN KEY (course_id) REFERENCES public.courses(id)
 );
--- =====================
--- GEMINI AI ENHANCEMENTS
--- =====================
-
--- For Laundry AI detections
-ALTER TABLE laundry_orders ADD COLUMN items_json JSONB;
-ALTER TABLE laundry_orders ADD COLUMN image_url TEXT;
-
--- For Trip AI recommendations
-ALTER TABLE trips ADD COLUMN ai_suggestions TEXT;
+CREATE TABLE public.trip_days (
+  id integer NOT NULL DEFAULT nextval('trip_days_id_seq'::regclass),
+  trip_id integer NOT NULL,
+  day_number integer NOT NULL CHECK (day_number >= 1),
+  activities jsonb DEFAULT '[]'::jsonb,
+  estimated_cost numeric DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT trip_days_pkey PRIMARY KEY (id),
+  CONSTRAINT trip_days_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES public.trips(id)
+);
+CREATE TABLE public.trip_itinerary (
+  id integer NOT NULL DEFAULT nextval('trip_itinerary_id_seq'::regclass),
+  trip_id integer,
+  day_number integer,
+  activity text,
+  CONSTRAINT trip_itinerary_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.trip_members (
+  id integer NOT NULL DEFAULT nextval('trip_members_id_seq'::regclass),
+  trip_id integer,
+  student_id integer,
+  joined_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT trip_members_pkey PRIMARY KEY (id),
+  CONSTRAINT trip_members_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.trip_places (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  trip_id bigint NOT NULL,
+  place_name text NOT NULL,
+  budget numeric,
+  ticket_price numeric,
+  additional_details text,
+  sort_order integer NOT NULL DEFAULT 1,
+  CONSTRAINT trip_places_pkey PRIMARY KEY (id),
+  CONSTRAINT trip_places_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES public.trips(id)
+);
+CREATE TABLE public.trip_plans (
+  id integer NOT NULL DEFAULT nextval('trip_plans_id_seq'::regclass),
+  trip_id integer,
+  user_id integer,
+  destination character varying NOT NULL,
+  days integer NOT NULL CHECK (days >= 1 AND days <= 30),
+  budget_lkr numeric NOT NULL,
+  travelers integer DEFAULT 1,
+  room_type character varying DEFAULT 'standard'::character varying,
+  travel_type character varying DEFAULT 'solo'::character varying,
+  transport_mode character varying DEFAULT 'car'::character varying,
+  food_preference character varying DEFAULT 'mixed'::character varying,
+  summary text,
+  itinerary_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  hotel_details_json jsonb DEFAULT '[]'::jsonb,
+  food_places_json jsonb DEFAULT '[]'::jsonb,
+  transport_details_json jsonb,
+  cost_breakdown_json jsonb,
+  travel_tips_json jsonb DEFAULT '[]'::jsonb,
+  total_cost_lkr numeric NOT NULL DEFAULT 0,
+  total_cost_usd numeric,
+  budget_sufficient boolean DEFAULT true,
+  budget_message text,
+  status character varying DEFAULT 'active'::character varying CHECK (status::text = ANY (ARRAY['active'::character varying, 'void'::character varying, 'archived'::character varying]::text[])),
+  voided_at timestamp with time zone,
+  void_reason text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT trip_plans_pkey PRIMARY KEY (id),
+  CONSTRAINT trip_plans_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES public.trips(id),
+  CONSTRAINT trip_plans_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.trip_recommendations (
+  id integer NOT NULL DEFAULT nextval('trip_recommendations_id_seq'::regclass),
+  trip_id integer NOT NULL,
+  type character varying NOT NULL,
+  name character varying NOT NULL,
+  rating numeric,
+  address text,
+  photo_url text,
+  place_id character varying,
+  price_level integer,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT trip_recommendations_pkey PRIMARY KEY (id),
+  CONSTRAINT trip_recommendations_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES public.trips(id)
+);
+CREATE TABLE public.trips (
+  id integer NOT NULL DEFAULT nextval('trips_id_seq'::regclass),
+  user_id integer NOT NULL,
+  destination character varying NOT NULL,
+  place_id character varying,
+  latitude numeric,
+  longitude numeric,
+  duration integer NOT NULL CHECK (duration >= 1 AND duration <= 30),
+  budget numeric NOT NULL CHECK (budget > 0::numeric),
+  travel_type character varying DEFAULT 'solo'::character varying,
+  accommodation_type character varying DEFAULT 'standard'::character varying,
+  transport_mode character varying DEFAULT 'car'::character varying,
+  food_preference character varying DEFAULT 'mixed'::character varying,
+  total_estimated_cost numeric,
+  status character varying DEFAULT 'planning'::character varying,
+  ai_summary text,
+  ai_travel_tips text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  travelers integer DEFAULT 1,
+  itinerary_json jsonb,
+  hotel_details_json jsonb,
+  total_cost_lkr numeric DEFAULT 0,
+  budget_lkr numeric,
+  transport_details_json jsonb,
+  cost_breakdown_json jsonb,
+  budget_sufficient boolean DEFAULT true,
+  currency character varying DEFAULT 'LKR'::character varying,
+  voided_at timestamp with time zone,
+  void_reason text,
+  description text,
+  address text,
+  city text,
+  area text,
+  lat double precision,
+  lng double precision,
+  departure_date date,
+  return_date date,
+  max_participants integer,
+  organizer_name text,
+  organizer_email text,
+  phone text,
+  whatsapp text,
+  trip_type text,
+  transport_type text,
+  inclusions text,
+  logo_url text,
+  banner_url text,
+  gallery_urls ARRAY,
+  days smallint,
+  distance_km real,
+  food_budget_per_day smallint,
+  hotel_budget_per_night smallint,
+  start_location text,
+  total_budget real,
+  transport_cost_per_km real,
+  CONSTRAINT trips_pkey PRIMARY KEY (id),
+  CONSTRAINT trips_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.universities (
+  id integer NOT NULL DEFAULT nextval('universities_id_seq'::regclass),
+  name character varying NOT NULL,
+  city character varying,
+  is_active boolean DEFAULT true,
+  CONSTRAINT universities_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.user_page_permissions (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  user_id integer NOT NULL,
+  page_id smallint NOT NULL,
+  enabled boolean NOT NULL DEFAULT true,
+  CONSTRAINT user_page_permissions_pkey PRIMARY KEY (id),
+  CONSTRAINT user_page_permissions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT user_page_permissions_page_id_fkey FOREIGN KEY (page_id) REFERENCES public.app_pages(id)
+);
+CREATE TABLE public.users (
+  id integer NOT NULL DEFAULT nextval('users_id_seq'::regclass),
+  name character varying NOT NULL,
+  email character varying NOT NULL UNIQUE,
+  role USER-DEFINED NOT NULL,
+  uni_id integer,
+  created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  auth_id uuid UNIQUE,
+  google_id character varying UNIQUE,
+  photo_url text,
+  auth_provider character varying DEFAULT 'email'::character varying,
+  vendor_type text,
+  CONSTRAINT users_pkey PRIMARY KEY (id),
+  CONSTRAINT users_uni_id_fkey FOREIGN KEY (uni_id) REFERENCES public.universities(id)
+);

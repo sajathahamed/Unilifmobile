@@ -8,7 +8,9 @@ export {
     createFoodOrderItems,
     getFoodOrderById,
     getActiveFoodOrderForStudent,
+    getActiveFoodOrdersForStudent,
     getLaundryServices,
+    getLaundryShops,
     getLaundryOrdersForStudent,
     getActiveLaundryOrderForStudent,
     createLaundryOrder,
@@ -24,6 +26,8 @@ export {
     voidTripPlan,
     getVoidedTripPlans,
     upsertUserGoogle,
+    createTimetableEntry,
+    getCourses,
 } from './db';
 export type { TripPlanInsert } from './db';
 

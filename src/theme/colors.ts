@@ -1,107 +1,129 @@
-// Light Theme Colors
+// Color Palette: Indigo & Slate
+// A premium, modern palette following popular design systems
+
 export const lightColors = {
-  // Primary
-  primary: '#6366F1',
-  primaryLight: '#818CF8',
-  primaryDark: '#4F46E5',
+  // Primary - Vibrant Indigo
+  primary: '#4F46E5',        // Indigo 600
+  primaryLight: '#818CF8',   // Indigo 400
+  primaryDark: '#3730A3',    // Indigo 800
+  onPrimary: '#FFFFFF',
   
-  // Secondary
-  secondary: '#EC4899',
-  secondaryLight: '#F472B6',
-  secondaryDark: '#DB2777',
+  // Secondary - Soft Rose/Pink for accents
+  secondary: '#E11D48',      // Rose 600
+  secondaryLight: '#FB7185', // Rose 400
+  secondaryDark: '#9F1239',  // Rose 800
+  onSecondary: '#FFFFFF',
   
-  // Accent
-  accent: '#14B8A6',
-  accentLight: '#2DD4BF',
-  accentDark: '#0D9488',
+  // Neutrals - Slate based
+  background: '#F8FAFC',     // Slate 50
+  backgroundSecondary: '#F1F5F9', // Slate 100
+  backgroundTertiary: '#E2E8F0',  // Slate 200
   
-  // Background
-  background: '#FFFFFF',
-  backgroundSecondary: '#F8FAFC',
-  backgroundTertiary: '#F1F5F9',
-  
-  // Surface
   surface: '#FFFFFF',
   surfaceSecondary: '#F8FAFC',
+  onSurface: '#0F172A',      // Slate 900
   
   // Text
-  text: '#1E293B',
-  textSecondary: '#64748B',
-  textTertiary: '#94A3B8',
+  text: '#0F172A',           // Slate 900 (High Emphasis)
+  textSecondary: '#475569',  // Slate 600 (Medium Emphasis)
+  textTertiary: '#94A3B8',   // Slate 400 (Disabled/Hint)
   textInverse: '#FFFFFF',
   
-  // Border
-  border: '#E2E8F0',
-  borderSecondary: '#CBD5E1',
+  // Border & Dividers
+  border: '#E2E8F0',         // Slate 200
+  borderSecondary: '#CBD5E1', // Slate 300
   
-  // Status
-  success: '#10B981',
-  successLight: '#D1FAE5',
-  warning: '#F59E0B',
-  warningLight: '#FEF3C7',
-  error: '#EF4444',
-  errorLight: '#FEE2E2',
-  info: '#3B82F6',
-  infoLight: '#DBEAFE',
+  // Status Colors
+  success: '#10B981',        // Emerald 500
+  successLight: '#D1FAE5',   // Emerald 100
+  onSuccess: '#064E3B',      // Emerald 900
   
-  // Others
-  overlay: 'rgba(0, 0, 0, 0.5)',
-  shadow: 'rgba(0, 0, 0, 0.1)',
-  disabled: '#94A3B8',
+  warning: '#F59E0B',        // Amber 500
+  warningLight: '#FEF3C7',   // Amber 100
+  onWarning: '#78350F',      // Amber 900
+  
+  error: '#EF4444',          // Rose 500
+  errorLight: '#FEE2E2',     // Rose 100
+  onError: '#7F1D1D',        // Rose 900
+  
+  info: '#3B82F6',           // Blue 500
+  infoLight: '#DBEAFE',      // Blue 100
+  onInfo: '#1E3A8A',         // Blue 900
+  
+  // Dashboard Module Accents
+  dashboardLaundry: '#10B981',   // Emerald
+  dashboardTrip: '#0EA5E9',     // Sky
+  dashboardFood: '#F97316',     // Orange
+  dashboardTimetable: '#8B5CF6', // Violet
+
+  // Misc
+  overlay: 'rgba(15, 23, 42, 0.4)',
+  shadow: 'rgba(15, 23, 42, 0.08)',
+  disabled: '#CBD5E1',
   placeholder: '#94A3B8',
 };
 
-// Dark Theme Colors
 export const darkColors = {
-  // Primary
-  primary: '#818CF8',
-  primaryLight: '#A5B4FC',
-  primaryDark: '#6366F1',
+  // Primary - Vibrant Indigo
+  primary: '#818CF8',        // Indigo 400
+  primaryLight: '#A5B4FC',   // Indigo 300
+  primaryDark: '#6366F1',    // Indigo 500
+  onPrimary: '#0F172A',
   
   // Secondary
-  secondary: '#F472B6',
-  secondaryLight: '#F9A8D4',
-  secondaryDark: '#EC4899',
+  secondary: '#FB7185',      // Rose 400
+  secondaryLight: '#FDA4AF', // Rose 300
+  secondaryDark: '#E11D48',  // Rose 600
+  onSecondary: '#0F172A',
   
-  // Accent
-  accent: '#2DD4BF',
-  accentLight: '#5EEAD4',
-  accentDark: '#14B8A6',
+  // Neutrals - Deep Slate
+  background: '#0F172A',     // Slate 900
+  backgroundSecondary: '#1E293B', // Slate 800
+  backgroundTertiary: '#334155',  // Slate 700
   
-  // Background
-  background: '#0F172A',
-  backgroundSecondary: '#1E293B',
-  backgroundTertiary: '#334155',
-  
-  // Surface
-  surface: '#1E293B',
-  surfaceSecondary: '#334155',
+  surface: '#1E293B',        // Slate 800
+  surfaceSecondary: '#334155', // Slate 700
+  onSurface: '#F8FAFC',      // Slate 50
   
   // Text
-  text: '#F8FAFC',
-  textSecondary: '#CBD5E1',
-  textTertiary: '#94A3B8',
-  textInverse: '#1E293B',
+  text: '#F8FAFC',           // Slate 50
+  textSecondary: '#CBD5E1',  // Slate 300
+  textTertiary: '#64748B',   // Slate 500
+  textInverse: '#0F172A',
   
-  // Border
-  border: '#334155',
-  borderSecondary: '#475569',
+  // Border & Dividers
+  border: '#334155',         // Slate 700
+  borderSecondary: '#475569', // Slate 600
   
-  // Status
-  success: '#34D399',
-  successLight: '#064E3B',
-  warning: '#FBBF24',
-  warningLight: '#78350F',
-  error: '#F87171',
-  errorLight: '#7F1D1D',
-  info: '#60A5FA',
-  infoLight: '#1E3A5F',
+  // Status Colors
+  success: '#34D399',        // Emerald 400
+  successLight: 'rgba(52, 211, 153, 0.1)',
+  onSuccess: '#D1FAE5',
   
-  // Others
+  warning: '#FBBF24',        // Amber 400
+  warningLight: 'rgba(251, 191, 36, 0.1)',
+  onWarning: '#FEF3C7',
+  
+  error: '#F87171',          // Rose 400
+  errorLight: 'rgba(248, 113, 113, 0.1)',
+  onError: '#FEE2E2',
+  
+  info: '#60A5FA',           // Blue 400
+  infoLight: 'rgba(96, 165, 250, 0.1)',
+  onInfo: '#DBEAFE',
+  
+  // Dashboard Module Accents
+  dashboardLaundry: '#34D399',
+  dashboardTrip: '#38BDF8',
+  dashboardFood: '#FB923C',
+  dashboardTimetable: '#A78BFA',
+
+  // Misc
   overlay: 'rgba(0, 0, 0, 0.7)',
-  shadow: 'rgba(0, 0, 0, 0.3)',
+  shadow: 'rgba(0, 0, 0, 0.4)',
   disabled: '#475569',
-  placeholder: '#64748B',
+  placeholder: '#475569',
 };
 
 export type ThemeColors = typeof lightColors;
+

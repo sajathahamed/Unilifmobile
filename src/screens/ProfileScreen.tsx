@@ -88,7 +88,7 @@ export const ProfileScreen: React.FC = () => {
                   ? new Date(userProfile.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })
                   : '—'
               }
-              color={theme.colors.accent}
+              color={theme.colors.info}
               textColor={theme.colors.text}
             />
           </Card>

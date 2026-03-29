@@ -80,18 +80,20 @@ export const FoodMenuScreen: React.FC<FoodMenuScreenProps> = ({ route, navigatio
             ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
             renderItem={({ item }) => (
               <View style={isTablet ? { flex: 1 } : undefined}>
-                <Card elevated>
-                  <View style={styles.row}>
+                <Card elevation="sm" variant="secondary" border={false} style={styles.menuItemCard}>
+                  <View style={styles.itemRow}>
                     <View
                       style={[
                         styles.iconBox,
-                        { backgroundColor: theme.colors.primaryDark + '12' },
+                        { backgroundColor: theme.colors.primary + '10' },
                       ]}
                     >
-                      <Ionicons name="restaurant-outline" size={32} color={theme.colors.primary} />
+                      <Ionicons name="restaurant-outline" size={28} color={theme.colors.primary} />
                     </View>
-                    <View style={styles.flex}>
-                      <Text style={[styles.itemName, { color: theme.colors.text }]}>{item.name}</Text>
+                    <View style={styles.itemInfo}>
+                      <Text style={[styles.itemName, { color: theme.colors.text }]} numberOfLines={1}>
+                        {item.name}
+                      </Text>
                       {(item as any).food_categories?.name && (
                         <Text style={[styles.category, { color: theme.colors.primary }]}>
                           {(item as any).food_categories.name}
@@ -101,22 +103,33 @@ export const FoodMenuScreen: React.FC<FoodMenuScreenProps> = ({ route, navigatio
                         RM {Number(item.price ?? 0).toFixed(2)}
                       </Text>
                     </View>
-                  </View>
-                  <View style={{ marginTop: 12 }}>
-                    <Button
-                      label={isInCart(item.id) ? '✓ Added to Cart' : 'Add to Cart'}
-                      variant={isInCart(item.id) ? 'outline' : 'primary'}
-                      onPress={() =>
-                        addItem({
-                          id: item.id,
-                          name: item.name ?? '',
-                          price: Number(item.price ?? 0),
-                          vendorId,
-                          vendorName,
-                          imageUrl: item.image_url ?? undefined,
-                        })
-                      }
-                    />
+                    <View style={styles.actionColumn}>
+                       <TouchableOpacity 
+                         onPress={() =>
+                           addItem({
+                             id: item.id,
+                             name: item.name ?? '',
+                             price: Number(item.price ?? 0),
+                             vendorId,
+                             vendorName,
+                             imageUrl: item.image_url ?? undefined,
+                           })
+                         }
+                         style={[
+                           styles.addButton, 
+                           { 
+                             backgroundColor: isInCart(item.id) ? theme.colors.success : theme.colors.primary,
+                             shadowColor: isInCart(item.id) ? theme.colors.success : theme.colors.primary 
+                           }
+                         ]}
+                       >
+                         <Ionicons 
+                           name={isInCart(item.id) ? "checkmark" : "add"} 
+                           size={24} 
+                           color="#fff" 
+                         />
+                       </TouchableOpacity>
+                    </View>
                   </View>
                 </Card>
               </View>
@@ -127,13 +140,21 @@ export const FoodMenuScreen: React.FC<FoodMenuScreenProps> = ({ route, navigatio
         {/* Floating Cart Button */}
         {totalCount > 0 && (
           <TouchableOpacity
+            activeOpacity={0.9}
             style={[styles.cartBtn, { backgroundColor: theme.colors.primary }]}
             onPress={() => navigation.navigate('Cart')}
           >
-            <Ionicons name="cart-outline" size={22} color="#fff" />
-            <Text style={styles.cartBtnText}>View Cart</Text>
-            <View style={styles.cartBadge}>
-              <Text style={styles.cartBadgeText}>{totalCount}</Text>
+            <View style={styles.cartBtnContent}>
+              <View style={styles.cartIconWrapper}>
+                <Ionicons name="cart" size={20} color="#fff" />
+                <View style={[styles.badge, { backgroundColor: theme.colors.error }]}>
+                   <Text style={styles.badgeText}>{totalCount}</Text>
+                </View>
+              </View>
+              <Text style={styles.cartBtnText}>View your cart</Text>
+              <Text style={styles.cartBtnTotal}>
+                RM {cartItems.reduce((acc, item) => acc + (item.price * item.quantity), 0).toFixed(2)}
+              </Text>
             </View>
           </TouchableOpacity>
         )}
@@ -144,47 +165,81 @@ export const FoodMenuScreen: React.FC<FoodMenuScreenProps> = ({ route, navigatio
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  header: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
-  title: { fontSize: 22, fontWeight: '800' },
-  subtitle: { fontSize: 14, marginTop: 2 },
+  header: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 16 },
+  title: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
+  subtitle: { fontSize: 14, marginTop: 4, opacity: 0.7 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  flex: { flex: 1 },
-  iconBox: {
-    width: 64,
-    height: 64,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+  menuItemCard: {
+    borderRadius: 20,
+    marginBottom: 8,
+    padding: 12,
   },
-  itemName: { fontSize: 15, fontWeight: '700', marginBottom: 2 },
-  category: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
-  price: { fontSize: 16, fontWeight: '800' },
-  cartBtn: {
-    position: 'absolute',
-    bottom: 24,
-    left: 24,
-    right: 24,
+  itemRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  itemInfo: { flex: 1 },
+  iconBox: {
+    width: 52,
     height: 52,
     borderRadius: 14,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 6,
   },
-  cartBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
-  cartBadge: {
-    position: 'absolute',
-    right: 16,
-    backgroundColor: '#fff',
+  itemName: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
+  category: { fontSize: 11, fontWeight: '800', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
+  price: { fontSize: 17, fontWeight: '800' },
+  actionColumn: {
+    paddingLeft: 8,
+  },
+  addButton: {
+    width: 44,
+    height: 44,
     borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  cartBadgeText: { color: '#4F46E5', fontWeight: '800', fontSize: 13 },
+  cartBtn: {
+    position: 'absolute',
+    bottom: 30,
+    left: 20,
+    right: 20,
+    height: 60,
+    borderRadius: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 15,
+    elevation: 10,
+    overflow: 'hidden',
+  },
+  cartBtnContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  cartIconWrapper: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#4F46E5', // Will use theme.colors.primary in runtime if needed, but #4F46E5 is a safe default for indigo
+  },
+  badgeText: { color: '#fff', fontSize: 9, fontWeight: '900' },
+  cartBtnText: { color: '#fff', fontWeight: '700', fontSize: 16, flex: 1 },
+  cartBtnTotal: { color: '#fff', fontWeight: '800', fontSize: 16 },
 });

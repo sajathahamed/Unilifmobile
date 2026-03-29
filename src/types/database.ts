@@ -15,6 +15,11 @@ export interface User {
   email: string;
   role: UserRole;
   uni_id: number | null;
+  google_id: string | null;
+  photo_url: string | null;
+  auth_provider: string | null;
+  auth_id: string | null;
+  vendor_type: string | null;
   created_at: string;
 }
 
@@ -30,6 +35,7 @@ export interface Timetable {
   id: number;
   student_id: number | null;
   course_id: number | null;
+  academic_year: string | null;
   day_of_week: string | null;
   start_time: string | null;
   end_time: string | null;
@@ -77,15 +83,27 @@ export interface Delivery {
   updated_at: string;
 }
 
-export interface Vendor {
+export interface FoodStall {
   id: number;
-  name: string | null;
-  type: string | null;
-  location: string | null;
+  shop_name: string;
+  owner_name: string;
+  owner_email: string;
+  phone: string | null;
+  whatsapp: string | null;
+  address: string | null;
+  city: string | null;
+  area: string | null;
+  description: string | null;
+  opening_time: string | null;
+  closing_time: string | null;
+  category: string | null;
+  logo: string | null;
+  banner: string | null;
   is_open: boolean;
-  rating: number | null;
   created_at: string;
 }
+
+export type Vendor = FoodStall; // Maintain compatibility
 
 export interface FoodCategory {
   id: number;
@@ -105,9 +123,15 @@ export interface FoodItem {
 
 export interface FoodOrder {
   id: number;
-  student_id: number | null;
-  vendor_id: number | null;
+  food_stall_id: string | null;
+  customer_email: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
   total: number | null;
+  notes: string | null;
+  items: string | null;
+  delivery_address: string | null;
+  order_ref: string | null;
   status: string | null;
   created_at: string;
 }
@@ -129,15 +153,44 @@ export interface LaundryService {
   pickup_available: boolean;
 }
 
+export interface LaundryShop {
+  id: string;
+  shop_name: string | null;
+  owner_email: string | null;
+  owner_name: string | null;
+  whatsapp: string | null;
+  phone: string | null;
+  banner: string | null;
+  vendor_type: string | null;
+  gallery: string | null;
+  logo: string | null;
+  is_open: boolean;
+  created_at: string;
+  opening_time: string | null;
+  closing_time: string | null;
+  address: string | null;
+  city: string | null;
+  area: string | null;
+  delivery_radius: number | null;
+  pickup_delivery: boolean;
+  services: string | null;
+  price_list: string | null;
+  lng: number | null;
+  lat: number | null;
+}
+
 export interface LaundryOrder {
   id: number;
-  student_id: number | null;
-  laundry_service_id: number | null;
-  order_type: string | null;
-  total_price: number | null;
+  laundry_shop_id: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  pickup_address: string | null;
+  delivery_address: string | null;
+  total: number | null;
   status: string | null;
-  items_json?: Record<string, number> | null;
-  image_url?: string | null;
+  notes: string | null;
+  items_description: string | null;
+  order_ref: string | null;
   created_at: string;
 }
 
@@ -146,22 +199,51 @@ export interface Trip {
   id: number;
   destination: string | null;
   days: number | null;
-  estimated_budget: number | null;
-  created_by: number | null;
+  budget: number | null;
+  user_id: number | null;
   status: string | null;
-  ai_suggestions?: string | null;
-  // New fields for enhanced trip planner
   place_id?: string | null;
   latitude?: number | null;
   longitude?: number | null;
-  travel_type?: 'solo' | 'couple' | 'family' | 'friends' | null;
-  accommodation_type?: 'budget' | 'standard' | 'luxury' | null;
-  transport_mode?: 'bus' | 'train' | 'car' | 'flight' | null;
-  food_preference?: 'veg' | 'non-veg' | 'mixed' | null;
+  lat?: number | null;
+  lng?: number | null;
+  travel_type?: string | null;
+  accommodation_type?: string | null;
+  transport_mode?: string | null;
+  transport_type?: string | null;
+  food_preference?: string | null;
   total_estimated_cost?: number | null;
   ai_summary?: string | null;
   ai_travel_tips?: string | null;
+  trip_type?: string | null;
+  organizer_email?: string | null;
+  organizer_name?: string | null;
+  area?: string | null;
+  inclusions?: string | null;
+  logo_url?: string | null;
+  banner_url?: string | null;
+  city?: string | null;
+  whatsapp?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  description?: string | null;
+  void_reason?: string | null;
+  voided_at?: string | null;
+  max_participants?: number | null;
+  departure_date?: string | null;
+  return_date?: string | null;
+  budget_sufficient?: boolean | null;
+  budget_lkr?: number | null;
+  total_cost_lkr?: number | null;
+  travelers?: number | null;
+  gallery_urls?: string | null;
+  cost_breakdown_json?: any;
+  transport_details_json?: any;
+  hotel_details_json?: any;
+  itinerary_json?: any;
+  currency?: string | null;
   updated_at?: string | null;
+  created_at?: string | null;
 }
 
 // Trip Day Plan
@@ -275,6 +357,11 @@ export interface Database {
           email: string;
           role: UserRole;
           uni_id?: number | null;
+          google_id?: string | null;
+          photo_url?: string | null;
+          auth_provider?: string | null;
+          auth_id?: string | null;
+          vendor_type?: string | null;
           created_at?: string;
         };
         Update: Partial<Omit<User, 'id'>>;
@@ -314,10 +401,10 @@ export interface Database {
         Insert: Omit<Delivery, 'id' | 'updated_at'>;
         Update: Partial<Omit<Delivery, 'id'>>;
       };
-      vendors: {
-        Row: Vendor;
-        Insert: Omit<Vendor, 'id' | 'created_at'>;
-        Update: Partial<Omit<Vendor, 'id'>>;
+      food_stalls: {
+        Row: FoodStall;
+        Insert: Omit<FoodStall, 'id' | 'created_at'>;
+        Update: Partial<Omit<FoodStall, 'id'>>;
       };
       food_categories: {
         Row: FoodCategory;

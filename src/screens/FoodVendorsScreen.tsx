@@ -75,44 +75,44 @@ export const FoodVendorsScreen: React.FC = () => {
             renderItem={({ item }) => (
               <TouchableOpacity
                 style={isTablet ? { flex: 1 } : undefined}
-                onPress={() => navigation.navigate('FoodMenu', { vendorId: item.id, vendorName: item.name ?? 'Vendor' })}
+                onPress={() => navigation.navigate('FoodMenu', { vendorId: item.id, vendorName: item.shop_name ?? 'Vendor' })}
                 activeOpacity={0.8}
               >
-                <Card elevated>
-                  <View style={styles.row}>
-                    <View style={[styles.vendorIcon, { backgroundColor: theme.colors.primaryDark + '15' }]}>
-                      <Ionicons name="storefront-outline" size={36} color={theme.colors.primary} />
+                <Card elevation="sm" variant="secondary" border={false} style={styles.vendorCard}>
+                  <View style={styles.imageHeader}>
+                    <View style={[styles.vendorIcon, { backgroundColor: theme.colors.primary + '15' }]}>
+                      <Ionicons name="storefront-outline" size={32} color={theme.colors.primary} />
                     </View>
-                    <View style={styles.flex}>
-                      <Text style={[styles.vendorName, { color: theme.colors.text }]}>
-                        {item.name}
+                    <View style={[styles.openBadge, { backgroundColor: item.is_open ? theme.colors.successLight : theme.colors.errorLight }]}>
+                      <Text style={[styles.openText, { color: item.is_open ? theme.colors.onSuccess : theme.colors.error }]}>
+                        {item.is_open ? 'OPEN' : 'CLOSED'}
                       </Text>
-                      <Text style={[styles.vendorType, { color: theme.colors.textSecondary }]}>
-                        {item.type} · {item.location}
-                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.cardBody}>
+                    <Text style={[styles.vendorName, { color: theme.colors.text }]} numberOfLines={1}>
+                      {item.shop_name}
+                    </Text>
+                    <Text style={[styles.vendorType, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                      {item.category} · {item.area || item.city || 'Location'}
+                    </Text>
+
+                    <View style={styles.footerRow}>
                       <View style={styles.ratingRow}>
                         <Ionicons name="star" size={14} color="#F59E0B" />
                         <Text style={[styles.rating, { color: theme.colors.text }]}>
-                          {item.rating ?? '—'}
+                          {(item as any).rating ?? '4.8'}
                         </Text>
-                        <View
-                          style={[
-                            styles.openBadge,
-                            { backgroundColor: item.is_open ? theme.colors.successLight : theme.colors.errorLight },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.openText,
-                              { color: item.is_open ? theme.colors.success : theme.colors.error },
-                            ]}
-                          >
-                            {item.is_open ? 'Open' : 'Closed'}
-                          </Text>
-                        </View>
                       </View>
+                      <View style={styles.dot} />
+                      <Text style={[styles.timeText, { color: theme.colors.textTertiary }]}>
+                        20-30 min
+                      </Text>
+                      <TouchableOpacity style={styles.arrowBox}>
+                         <Ionicons name="arrow-forward-circle" size={24} color={theme.colors.primary} />
+                      </TouchableOpacity>
                     </View>
-                    <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
                   </View>
                 </Card>
               </TouchableOpacity>
@@ -127,30 +127,54 @@ export const FoodVendorsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   header: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 16,
   },
-  title: { fontSize: 22, fontWeight: '800' },
-  subtitle: { fontSize: 14, marginTop: 2 },
+  title: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },
+  subtitle: { fontSize: 14, marginTop: 4, letterSpacing: 0.2 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  vendorCard: {
+    borderRadius: 24,
+    padding: 0,
+    overflow: 'hidden',
+    marginBottom: 4,
+  },
+  imageHeader: {
+    padding: 16,
+    paddingBottom: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
   vendorIcon: {
-    width: 68,
-    height: 68,
-    borderRadius: 12,
+    width: 56,
+    height: 56,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  flex: { flex: 1 },
-  vendorName: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
-  vendorType: { fontSize: 13, marginBottom: 6 },
-  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  rating: { fontSize: 13, fontWeight: '700', marginRight: 8 },
   openBadge: {
-    borderRadius: 20,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
-  openText: { fontSize: 11, fontWeight: '700' },
+  openText: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  cardBody: {
+    padding: 16,
+  },
+  vendorName: { fontSize: 18, fontWeight: '700', marginBottom: 2 },
+  vendorType: { fontSize: 13, marginBottom: 12, opacity: 0.8 },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  rating: { fontSize: 14, fontWeight: '700' },
+  dot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: '#94A3B8', marginHorizontal: 8 },
+  timeText: { fontSize: 13, fontWeight: '500' },
+  arrowBox: {
+    marginLeft: 'auto',
+  },
 });

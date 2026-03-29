@@ -15,6 +15,24 @@ const HF_TEXT_ENDPOINTS = [
     'https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1',
 ];
 
+// Destination Tiers for Sri Lanka (Premium, Mid, Budget)
+export const DESTINATION_TIERS: Record<string, 'premium' | 'mid' | 'budget'> = {
+    'Colombo': 'premium',
+    'Ella': 'premium',
+    'Galle': 'premium',
+    'Nuwara Eliya': 'premium',
+    'Hambantota': 'premium',
+    'Kandy': 'mid',
+    'Sigiriya': 'mid',
+    'Arugam Bay': 'mid',
+    'Trincomalee': 'mid',
+    'Jaffna': 'budget',
+    'Vavuniya': 'budget',
+    'Anuradhapura': 'budget',
+    'Polonnaruwa': 'budget',
+    'Kurunegala': 'budget',
+};
+
 // Current USD to LKR exchange rate (approximate)
 const USD_TO_LKR_RATE = 320;
 
@@ -156,10 +174,10 @@ export interface TripPlanResponse {
     }[];
     cost_breakdown_lkr: {
         accommodation: number;
-        food: number;
-        attractions: number;
-        transport: number;
-        miscellaneous: number;
+        meals: number;
+        sightseeing: number;
+        transportation: number;
+        emergency: number;
     };
     travel_tips: string[];
     budget_sufficient: boolean;
@@ -272,12 +290,12 @@ Return ONLY a valid JSON object (no markdown, no explanation) with this structur
     ],
     "cost_breakdown_lkr": {
         "accommodation": ${Math.round(budget * 0.35)},
-        "food": ${Math.round(budget * 0.25)},
-        "attractions": ${Math.round(budget * 0.2)},
-        "transport": ${Math.round(budget * 0.1)},
-        "miscellaneous": ${Math.round(budget * 0.1)}
+        "transportation": ${Math.round(budget * 0.25)},
+        "meals": ${Math.round(budget * 0.28)},
+        "sightseeing": ${Math.round(budget * 0.07)},
+        "emergency": ${Math.round(budget * 0.05)}
     },
-    "total_cost_lkr": ${Math.round(budget * 0.9)},
+    "total_cost_lkr": ${Math.round(budget * 0.95)},
     "travel_tips": ["Tip 1", "Tip 2"]
 }
 
@@ -446,10 +464,10 @@ function validateAndNormalizePlan(plan: any, request: TripPlanRequest): TripPlan
         food_places: [],
         cost_breakdown_lkr: {
             accommodation: plan.cost_breakdown_lkr?.accommodation || Math.round(budget * 0.35),
-            food: plan.cost_breakdown_lkr?.food || Math.round(budget * 0.25),
-            attractions: plan.cost_breakdown_lkr?.attractions || Math.round(budget * 0.2),
-            transport: plan.cost_breakdown_lkr?.transport || Math.round(budget * 0.1),
-            miscellaneous: plan.cost_breakdown_lkr?.miscellaneous || Math.round(budget * 0.1),
+            meals: plan.cost_breakdown_lkr?.meals || Math.round(budget * 0.28),
+            sightseeing: plan.cost_breakdown_lkr?.sightseeing || Math.round(budget * 0.07),
+            transportation: plan.cost_breakdown_lkr?.transportation || Math.round(budget * 0.25),
+            emergency: plan.cost_breakdown_lkr?.emergency || Math.round(budget * 0.05),
         },
         travel_tips: Array.isArray(plan.travel_tips) ? plan.travel_tips : [],
     };
@@ -841,11 +859,11 @@ function generateFallbackPlan(request: TripPlanRequest): TripPlanResponse {
             contact_phone: (r as any).contact,
         })),
         cost_breakdown_lkr: {
-            accommodation: accommodationTotal,
-            food: foodTotal,
-            attractions: attractionsTotal,
-            transport: transportTotal,
-            miscellaneous: Math.round(budget * 0.1),
+            accommodation: Math.round(budget * 0.35),
+            transportation: Math.round(budget * 0.25),
+            meals: Math.round(budget * 0.28),
+            sightseeing: Math.round(budget * 0.07),
+            emergency: Math.round(budget * 0.05),
         },
         travel_tips: destData.tips,
     };

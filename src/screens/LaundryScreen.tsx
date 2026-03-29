@@ -10,20 +10,27 @@ import {
     Modal,
     TextInput,
     ScrollView,
+    RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '@theme/index';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
+import { Input } from '@components/ui/Input';
 import { Badge } from '@components/ui/Badge';
 import { ResponsiveContainer } from '@components/layout/ResponsiveContainer';
 import { useAuth } from '@context/AuthContext';
 import {
     getLaundryOrdersForStudent,
-    getLaundryServices,
+    getLaundryShops,
     createLaundryOrder,
 } from '@lib/index';
-import { LaundryOrder, LaundryService } from '@app-types/database';
+import { LaundryOrder, LaundryShop } from '@app-types/database';
+
+/** Order row as returned by getLaundryOrdersForStudent with nested shop relation */
+export type LaundryOrderWithShop = LaundryOrder & {
+    laundry_shops: { shop_name: string | null; address: string | null } | null;
+};
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { detectClothing } from '@services/openai';
@@ -58,11 +65,13 @@ const CLOTHING_OPTIONS = [
 export const LaundryScreen: React.FC = () => {
     const { theme } = useTheme();
     const { userProfile } = useAuth();
-    const [orders, setOrders] = useState<LaundryOrder[]>([]);
-    const [services, setServices] = useState<LaundryService[]>([]);
+    const [orders, setOrders] = useState<LaundryOrderWithShop[]>([]);
+    const [shops, setShops] = useState<LaundryShop[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [fetchError, setFetchError] = useState<string | null>(null);
     const [modalVisible, setModalVisible] = useState(false);
-    const [selectedService, setSelectedService] = useState<LaundryService | null>(null);
+    const [selectedShop, setSelectedShop] = useState<LaundryShop | null>(null);
     const [weight, setWeight] = useState('');
     const [submitting, setSubmitting] = useState(false);
 
@@ -71,26 +80,40 @@ export const LaundryScreen: React.FC = () => {
     const [detectedItems, setDetectedItems] = useState<Record<string, number>>({});
     const [showItemPicker, setShowItemPicker] = useState(false);
 
-    const fetchData = useCallback(async () => {
-        if (!userProfile?.id) { setLoading(false); return; }
-        setLoading(true);
-        const [ordersRes, servicesRes] = await Promise.all([
-            getLaundryOrdersForStudent(userProfile.id),
-            getLaundryServices(),
+    const fetchData = useCallback(async (isRefresh?: boolean) => {
+        if (!userProfile?.id) {
+            setLoading(false);
+            setRefreshing(false);
+            return;
+        }
+        if (!isRefresh) setLoading(true);
+        else setRefreshing(true);
+        setFetchError(null);
+
+        const customerEmail = userProfile.email || '';
+        const [ordersRes, shopsRes] = await Promise.all([
+            getLaundryOrdersForStudent(customerEmail),
+            getLaundryShops(),
         ]);
 
+        const errors: string[] = [];
         if (ordersRes.error) {
             console.error('Error loading laundry orders:', ordersRes.error);
+            errors.push('orders');
         }
-        if (ordersRes.data) setOrders(ordersRes.data as LaundryOrder[]);
+        if (ordersRes.data) setOrders(ordersRes.data as LaundryOrderWithShop[]);
 
-        if (servicesRes.error) {
-            console.error('Error loading laundry services:', servicesRes.error);
-            // surface a simple alert for quick debugging in the app
-            Alert.alert('Error', 'Unable to load laundry services. Check console for details.');
+        if (shopsRes.error) {
+            console.error('Error loading laundry shops:', shopsRes.error);
+            errors.push('shops');
         }
-        if (servicesRes.data) setServices(servicesRes.data as LaundryService[]);
+        if (shopsRes.data) setShops(shopsRes.data as LaundryShop[]);
+
+        if (errors.length > 0) {
+            setFetchError(errors.length === 2 ? "Couldn't load laundry data." : `Couldn't load ${errors[0]}.`);
+        }
         setLoading(false);
+        setRefreshing(false);
     }, [userProfile?.id]);
 
     useEffect(() => {
@@ -142,8 +165,8 @@ export const LaundryScreen: React.FC = () => {
     };
 
     const handleNewOrder = async () => {
-        if (!selectedService || !weight || !userProfile?.id) {
-            Alert.alert('Missing Info', 'Please select a service and enter weight.');
+        if (!selectedShop || !weight || !userProfile?.id) {
+            Alert.alert('Missing Info', 'Please select a laundry shop and enter weight.');
             return;
         }
         const kg = parseFloat(weight);
@@ -151,14 +174,23 @@ export const LaundryScreen: React.FC = () => {
             Alert.alert('Invalid Weight', 'Please enter a valid weight in kg.');
             return;
         }
-        const total = (selectedService.price_per_kg ?? 0) * kg;
+        // Use a default rate; actual pricing is in the shop's price_list field
+        const total = kg * 10; // Default Rs 10/kg estimate
+        // Serialize detected items as a text description
+        const itemsDesc = Object.keys(detectedItems).length > 0
+            ? Object.entries(detectedItems).map(([name, count]) => `${name}: ${count}`).join(', ')
+            : undefined;
         setSubmitting(true);
         const { error } = await createLaundryOrder(
-            userProfile.id,
-            selectedService.id,
-            'per_kg',
+            selectedShop.id,
+            userProfile.name || '',
+            userProfile.email || '', // Use email as customer identifier for fetching
             total,
-            detectedItems
+            itemsDesc,
+            undefined, // pickup_address
+            undefined, // delivery_address
+            undefined, // notes
+            userProfile.id, // userId for notification
         );
         setSubmitting(false);
         if (error) {
@@ -166,7 +198,7 @@ export const LaundryScreen: React.FC = () => {
             return;
         }
         setModalVisible(false);
-        setSelectedService(null);
+        setSelectedShop(null);
         setWeight('');
         setDetectedItems({});
         fetchData();
@@ -205,68 +237,158 @@ export const LaundryScreen: React.FC = () => {
         );
     }
 
+    const onRefresh = () => {
+        setRefreshing(true);
+        fetchData(true);
+    };
+
+    const refreshControl = (
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
+    );
+
+    const renderOrderItem = ({ item }: { item: LaundryOrderWithShop }) => (
+        <Card elevation="sm" style={styles.orderCard}>
+            <View style={styles.orderHeader}>
+                <View style={[styles.orderIconBox, { backgroundColor: theme.colors.dashboardLaundry + '15' }]}>
+                    <Ionicons name="shirt-outline" size={20} color={theme.colors.dashboardLaundry} />
+                </View>
+                <View style={styles.orderInfo}>
+                    <Text style={[styles.orderShopName, { color: theme.colors.text }]} numberOfLines={1}>
+                        {item.laundry_shops?.shop_name || 'Laundry Service'}
+                    </Text>
+                    <Text style={[styles.orderDate, { color: theme.colors.textTertiary }]}>
+                        {new Date(item.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </Text>
+                </View>
+                <Badge
+                    label={item.status ?? 'pending'}
+                    variant={STATUS_VARIANT[item.status ?? 'pending'] ?? 'primary'}
+                    size="sm"
+                />
+            </View>
+
+            <View style={[styles.orderDivider, { backgroundColor: theme.colors.border }]} />
+
+            <View style={styles.orderFooter}>
+                <View style={styles.orderDetailItem}>
+                    <Text style={[styles.orderDetailLabel, { color: theme.colors.textSecondary }]}>Total Amount</Text>
+                    <Text style={[styles.orderDetailValue, { color: theme.colors.text }]}>
+                        Rs {Number(item.total ?? 0).toFixed(2)}
+                    </Text>
+                </View>
+                {item.items_description && (
+                    <View style={styles.orderDetailItem}>
+                        <Text style={[styles.orderDetailLabel, { color: theme.colors.textSecondary }]}>Items</Text>
+                        <Text style={[styles.orderDetailValue, { color: theme.colors.text }]} numberOfLines={1}>
+                            {item.items_description}
+                        </Text>
+                    </View>
+                )}
+            </View>
+        </Card>
+    );
+
+    const errorBanner = fetchError ? (
+        <View style={[styles.errorBanner, { backgroundColor: theme.colors.error + '20', borderColor: theme.colors.error }]}>
+            <Text style={[styles.errorBannerText, { color: theme.colors.error }]}>{fetchError}</Text>
+            <Button label="Retry" onPress={() => fetchData()} variant="outline" style={styles.retryBtn} />
+        </View>
+    ) : null;
+
+    const shopsSection = shops.length > 0 ? (
+        <View style={styles.shopsSection}>
+            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Available Shops</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.shopScroll}>
+                {shops.map((shop) => (
+                    <TouchableOpacity
+                        key={shop.id}
+                        activeOpacity={0.8}
+                        style={[styles.shopCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+                        onPress={() => {
+                            setSelectedShop(shop);
+                            setModalVisible(true);
+                        }}
+                    >
+                        <View style={[styles.shopIconBox, { backgroundColor: theme.colors.primary + '10' }]}>
+                            <Ionicons name="storefront-outline" size={24} color={theme.colors.primary} />
+                        </View>
+                        <Text style={[styles.shopName, { color: theme.colors.text }]} numberOfLines={1}>
+                            {shop.shop_name}
+                        </Text>
+                        <Text style={[styles.shopAddress, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                            {shop.address || shop.area || 'No address'}
+                        </Text>
+                        <View style={[styles.shopBadge, { backgroundColor: theme.colors.successLight }]}>
+                            <Text style={[styles.shopBadgeText, { color: theme.colors.onSuccess }]}>OPEN</Text>
+                        </View>
+                    </TouchableOpacity>
+                ))}
+            </ScrollView>
+        </View>
+    ) : null;
+
+    const ordersSectionTitle = <Text style={[styles.sectionTitle, { color: theme.colors.text, marginTop: 8 }]}>Your orders</Text>;
+
+    const emptyOrdersContent = (
+        <View style={styles.center}>
+            <Ionicons name="water-outline" size={64} color={theme.colors.border} />
+            <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
+                No laundry orders yet
+            </Text>
+            {shops.length > 0 && (
+                <Text style={[styles.emptyHint, { color: theme.colors.textTertiary }]}>
+                    Choose a shop above to place your first order.
+                </Text>
+            )}
+            <Button label="Place Laundry Order" onPress={() => setModalVisible(true)} />
+        </View>
+    );
+
     return (
         <SafeAreaView style={[styles.safe, { backgroundColor: theme.colors.background }]}>
             <View style={styles.header}>
-                <Text style={[styles.title, { color: theme.colors.text }]}>Laundry</Text>
+                <View style={styles.headerLeft}>
+                    <Text style={[styles.title, { color: theme.colors.text }]}>Laundry Services</Text>
+                    <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
+                        Manage your orders and place new ones
+                    </Text>
+                </View>
                 <TouchableOpacity
+                    activeOpacity={0.8}
                     style={[styles.addBtn, { backgroundColor: theme.colors.primary }]}
                     onPress={() => setModalVisible(true)}
                 >
-                    <Ionicons name="add" size={22} color="#fff" />
+                    <Ionicons name="add" size={24} color="#fff" />
                 </TouchableOpacity>
             </View>
 
             <ResponsiveContainer>
                 {orders.length === 0 ? (
-                    <View style={styles.center}>
-                        <Ionicons name="water-outline" size={64} color={theme.colors.border} />
-                        <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
-                            No laundry orders yet
-                        </Text>
-                        <Button label="Place Laundry Order" onPress={() => setModalVisible(true)} />
-                    </View>
+                    <ScrollView
+                        contentContainerStyle={styles.scrollContent}
+                        refreshControl={refreshControl}
+                        showsVerticalScrollIndicator={false}
+                    >
+                        {errorBanner}
+                        {shopsSection}
+                        {ordersSectionTitle}
+                        {emptyOrdersContent}
+                    </ScrollView>
                 ) : (
                     <FlatList
                         data={orders}
-                        keyExtractor={item => String(item.id)}
-                        contentContainerStyle={{ padding: 16 }}
+                        keyExtractor={(item) => String(item.id)}
+                        contentContainerStyle={styles.listContent}
                         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-                        renderItem={({ item }) => (
-                            <Card elevated>
-                                <View style={styles.row}>
-                                    <View style={styles.flex}>
-                                        <Text style={[styles.serviceName, { color: theme.colors.text }]}>
-                                            {(item as any).laundry_services?.name || 'Laundry Service'}
-                                        </Text>
-                                        <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>
-                                            {(item as any).laundry_services?.location}
-                                        </Text>
-
-                                        {item.items_json && Object.keys(item.items_json).length > 0 && (
-                                            <View style={styles.itemsBadgeRow}>
-                                                {Object.entries(item.items_json).map(([name, count]) => (
-                                                    <View key={name} style={[styles.minorBadge, { backgroundColor: theme.colors.backgroundSecondary }]}>
-                                                        <Text style={{ fontSize: 10, color: theme.colors.text }}>{name}: {count}</Text>
-                                                    </View>
-                                                ))}
-                                            </View>
-                                        )}
-
-                                        <Text style={{ color: theme.colors.text, fontWeight: '700', marginTop: 4 }}>
-                                            RM {Number(item.total_price ?? 0).toFixed(2)}
-                                        </Text>
-                                        <Text style={{ color: theme.colors.textTertiary, fontSize: 12, marginTop: 2 }}>
-                                            {new Date(item.created_at).toLocaleDateString()}
-                                        </Text>
-                                    </View>
-                                    <Badge
-                                        label={item.status ?? 'pending'}
-                                        variant={STATUS_VARIANT[item.status ?? 'pending'] ?? 'primary'}
-                                    />
-                                </View>
-                            </Card>
-                        )}
+                        refreshControl={refreshControl}
+                        ListHeaderComponent={
+                            <View style={styles.listHeader}>
+                                {errorBanner}
+                                {shopsSection}
+                                {ordersSectionTitle}
+                            </View>
+                        }
+                        renderItem={renderOrderItem}
                     />
                 )}
             </ResponsiveContainer>
@@ -274,134 +396,133 @@ export const LaundryScreen: React.FC = () => {
             {/* New Order Modal */}
             <Modal visible={modalVisible} transparent animationType="slide">
                 <View style={styles.overlay}>
-                    <View style={[styles.modal, { backgroundColor: theme.colors.surface }]}>
-                        <ScrollView showsVerticalScrollIndicator={false}>
-                            <Text style={[styles.modalTitle, { color: theme.colors.text }]}>New Laundry Order</Text>
-
-                            <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Select Service</Text>
-                            {services.length === 0 ? (
-                                <Text style={{ color: theme.colors.textSecondary, marginBottom: 8 }}>No laundry services available.</Text>
-                            ) : (
-                                services.map(svc => (
-                                    <TouchableOpacity
-                                        key={svc.id}
-                                        style={[
-                                            styles.serviceOption,
-                                            {
-                                                borderColor:
-                                                    selectedService?.id === svc.id ? theme.colors.primary : theme.colors.border,
-                                                backgroundColor:
-                                                    selectedService?.id === svc.id
-                                                        ? theme.colors.primary + '15'
-                                                        : theme.colors.backgroundSecondary,
-                                            },
-                                        ]}
-                                        onPress={() => setSelectedService(svc)}
-                                    >
-                                        <Text style={{ color: theme.colors.text, fontWeight: '700' }}>{svc.name}</Text>
-                                        <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>
-                                            RM {svc.price_per_kg}/kg · {svc.location}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))
-                            )}
-
-                            <Text style={[styles.label, { color: theme.colors.textSecondary, marginTop: 12 }]}>
-                                Add Clothing Items
-                            </Text>
-                            
-                            {/* Manual Add Button */}
-                            <TouchableOpacity
-                                style={[styles.manualAddBtn, { backgroundColor: theme.colors.primary }]}
-                                onPress={() => setShowItemPicker(true)}
-                            >
-                                <Ionicons name="add-circle-outline" size={22} color="#fff" />
-                                <Text style={styles.manualAddText}>Add Items Manually</Text>
+                    <View style={[styles.modal, { backgroundColor: theme.colors.surface, ...theme.shadow.lg }]}>
+                        <View style={styles.modalHeader}>
+                            <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Place New Order</Text>
+                            <TouchableOpacity onPress={() => { setModalVisible(false); setSelectedShop(null); setWeight(''); setDetectedItems({}); }}>
+                                <Ionicons name="close-circle-outline" size={28} color={theme.colors.textTertiary} />
                             </TouchableOpacity>
-
-                            {/* Optional: AI Detection */}
-                            <TouchableOpacity
-                                style={[styles.uploadBtn, { borderColor: theme.colors.border, backgroundColor: theme.colors.backgroundSecondary }]}
-                                onPress={pickAndProcessImage}
-                                disabled={detecting}
-                            >
-                                {detecting ? (
-                                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                        </View>
+                        
+                        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScroll}>
+                            <Text style={[styles.modalLabel, { color: theme.colors.text }]}>Select Laundry Shop</Text>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.modalShopRow}>
+                                {shops.length === 0 ? (
+                                    <Text style={{ color: theme.colors.textSecondary }}>No shops available.</Text>
                                 ) : (
-                                    <>
-                                        <Ionicons name="camera-outline" size={22} color={theme.colors.textSecondary} />
-                                        <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>
-                                            Or try photo scan (experimental)
-                                        </Text>
-                                    </>
+                                    shops.map(shop => (
+                                        <TouchableOpacity
+                                            key={shop.id}
+                                            style={[
+                                                styles.modalShopItem,
+                                                {
+                                                    borderColor:
+                                                        selectedShop?.id === shop.id ? theme.colors.primary : theme.colors.border,
+                                                    backgroundColor:
+                                                        selectedShop?.id === shop.id
+                                                            ? theme.colors.primary + '10'
+                                                            : theme.colors.backgroundSecondary,
+                                                },
+                                            ]}
+                                            onPress={() => setSelectedShop(shop)}
+                                        >
+                                            <Ionicons 
+                                                name="storefront-outline" 
+                                                size={20} 
+                                                color={selectedShop?.id === shop.id ? theme.colors.primary : theme.colors.textSecondary} 
+                                            />
+                                            <Text style={[styles.modalShopName, { color: selectedShop?.id === shop.id ? theme.colors.primary : theme.colors.text }]} numberOfLines={1}>
+                                                {shop.shop_name}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))
                                 )}
-                            </TouchableOpacity>
+                            </ScrollView>
+
+                            <View style={styles.manualAddSection}>
+                                <Text style={[styles.modalLabel, { color: theme.colors.text }]}>Items to Include</Text>
+                                <Button
+                                    label="Add Items Manually"
+                                    variant="secondary"
+                                    size="sm"
+                                    onPress={() => setShowItemPicker(true)}
+                                    leftIcon={<Ionicons name="add-circle-outline" size={18} color={theme.colors.primary} />}
+                                    style={styles.actionBtn}
+                                />
+                                <Button
+                                    label={detecting ? "Scanning..." : "Quick Photo Scan"}
+                                    variant="outline"
+                                    size="sm"
+                                    onPress={pickAndProcessImage}
+                                    disabled={detecting}
+                                    leftIcon={<Ionicons name="camera-outline" size={18} color={theme.colors.textSecondary} />}
+                                    style={styles.actionBtn}
+                                />
+                            </View>
 
                             {Object.keys(detectedItems).length > 0 && (
-                                <View style={[styles.detectedList, { backgroundColor: theme.colors.backgroundSecondary }]}>
-                                    <Text style={[styles.detectedTitle, { color: theme.colors.text }]}>Your Items:</Text>
+                                <Card variant="secondary" border={false} style={styles.itemsCard}>
+                                    <Text style={[styles.itemsTitle, { color: theme.colors.textSecondary }]}>SELECTED ITEMS</Text>
                                     {Object.entries(detectedItems).map(([key, count]) => (
-                                        <View key={key} style={styles.detectRow}>
-                                            <Text style={[styles.detectLabel, { color: theme.colors.text }]}>{key}</Text>
-                                            <TouchableOpacity 
-                                                onPress={() => updateCount(key, String(Math.max(0, count - 1)))}
-                                                style={[styles.countBtn, { backgroundColor: theme.colors.border }]}
-                                            >
-                                                <Ionicons name="remove" size={16} color={theme.colors.text} />
-                                            </TouchableOpacity>
-                                            <TextInput
-                                                value={String(count)}
-                                                onChangeText={(val) => updateCount(key, val)}
-                                                keyboardType="number-pad"
-                                                style={[styles.miniInput, { color: theme.colors.text, borderColor: theme.colors.border }]}
-                                            />
-                                            <TouchableOpacity 
-                                                onPress={() => updateCount(key, String(count + 1))}
-                                                style={[styles.countBtn, { backgroundColor: theme.colors.primary }]}
-                                            >
-                                                <Ionicons name="add" size={16} color="#fff" />
-                                            </TouchableOpacity>
-                                            <TouchableOpacity onPress={() => removeItem(key)} style={{ marginLeft: 4 }}>
-                                                <Ionicons name="trash-outline" size={18} color={theme.colors.error} />
-                                            </TouchableOpacity>
+                                        <View key={key} style={styles.itemRow}>
+                                            <Text style={[styles.itemName, { color: theme.colors.text }]}>{key}</Text>
+                                            <View style={styles.countControl}>
+                                                <TouchableOpacity 
+                                                    onPress={() => updateCount(key, String(Math.max(0, count - 1)))}
+                                                    style={[styles.countIcon, { borderColor: theme.colors.border }]}
+                                                >
+                                                    <Ionicons name="remove" size={14} color={theme.colors.textSecondary} />
+                                                </TouchableOpacity>
+                                                <TextInput
+                                                    value={String(count)}
+                                                    onChangeText={(val) => updateCount(key, val)}
+                                                    keyboardType="number-pad"
+                                                    style={[styles.countInput, { color: theme.colors.text }]}
+                                                />
+                                                <TouchableOpacity 
+                                                    onPress={() => updateCount(key, String(count + 1))}
+                                                    style={[styles.countIcon, { borderColor: theme.colors.primary, backgroundColor: theme.colors.primary + '10' }]}
+                                                >
+                                                    <Ionicons name="add" size={14} color={theme.colors.primary} />
+                                                </TouchableOpacity>
+                                                <TouchableOpacity onPress={() => removeItem(key)} style={styles.itemDelete}>
+                                                    <Ionicons name="trash-outline" size={18} color={theme.colors.error} />
+                                                </TouchableOpacity>
+                                            </View>
                                         </View>
                                     ))}
-                                </View>
+                                </Card>
                             )}
 
-                            <Text style={[styles.label, { color: theme.colors.textSecondary, marginTop: 12 }]}>
-                                Weight (kg)
-                            </Text>
-                            <TextInput
+                            <Input
+                                label="Estimated Weight (kg)"
                                 value={weight}
                                 onChangeText={setWeight}
                                 keyboardType="decimal-pad"
                                 placeholder="e.g. 3.5"
-                                placeholderTextColor={theme.colors.placeholder}
-                                style={[
-                                    styles.input,
-                                    { borderColor: theme.colors.border, color: theme.colors.text, backgroundColor: theme.colors.backgroundSecondary },
-                                ]}
+                                leftElement={<Ionicons name="speedometer-outline" size={20} color={theme.colors.textTertiary} />}
                             />
 
-                            {selectedService && weight ? (
-                                <Text style={[styles.totalPreview, { color: theme.colors.primary }]}>
-                                    Estimated: RM {((selectedService.price_per_kg ?? 0) * parseFloat(weight || '0')).toFixed(2)}
-                                </Text>
+                            {selectedShop && weight ? (
+                                <View style={[styles.pricePreview, { backgroundColor: theme.colors.primary + '10' }]}>
+                                    <View style={styles.priceRow}>
+                                        <Text style={{ color: theme.colors.textSecondary }}>Estimated Price</Text>
+                                        <Text style={[styles.priceVal, { color: theme.colors.primary }]}>
+                                            Rs {(10 * parseFloat(weight || '0')).toFixed(2)}
+                                        </Text>
+                                    </View>
+                                    <Text style={{ color: theme.colors.textTertiary, fontSize: 11, textAlign: 'center', marginTop: 4 }}>
+                                        * Final price will be confirmed by the shop
+                                    </Text>
+                                </View>
                             ) : null}
 
-                            <View style={styles.modalBtns}>
+                            <View style={styles.modalFooter}>
                                 <Button
-                                    label="Cancel"
-                                    variant="outline"
-                                    onPress={() => { setModalVisible(false); setSelectedService(null); setWeight(''); setDetectedItems({}); }}
-                                    style={{ flex: 1 }}
-                                />
-                                <Button
-                                    label={submitting ? 'Placing…' : 'Place Order'}
+                                    label={submitting ? 'Placing Order...' : 'Confirm Order'}
                                     onPress={handleNewOrder}
-                                    disabled={submitting || detecting}
-                                    style={{ flex: 1 }}
+                                    disabled={submitting || detecting || !selectedShop || !weight}
+                                    style={styles.confirmBtn}
                                 />
                             </View>
                         </ScrollView>
@@ -459,133 +580,110 @@ export const LaundryScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
     safe: { flex: 1 },
+    scrollContent: { paddingHorizontal: 16, paddingBottom: 32 },
+    listContent: { paddingHorizontal: 16, paddingBottom: 32 },
+    listHeader: { marginBottom: 12 },
+    errorBanner: {
+        marginBottom: 20,
+        padding: 16,
+        borderRadius: 16,
+        borderWidth: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    errorBannerText: { fontSize: 14, flex: 1, marginRight: 12 },
+    retryBtn: { minWidth: 80 },
+    shopsSection: { marginBottom: 32 },
+    sectionTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.3, marginBottom: 16 },
+    shopScroll: { paddingRight: 20, gap: 12 },
+    shopCard: {
+        width: 180,
+        borderWidth: 1,
+        borderRadius: 20,
+        padding: 16,
+    },
+    shopIconBox: {
+        width: 48,
+        height: 48,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 16,
+    },
+    shopName: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
+    shopAddress: { fontSize: 12, opacity: 0.7, marginBottom: 12 },
+    shopBadge: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+    shopBadgeText: { fontSize: 10, fontWeight: '800' },
     header: {
-        paddingHorizontal: 16,
-        paddingTop: 16,
-        paddingBottom: 8,
+        paddingHorizontal: 20,
+        paddingTop: 20,
+        paddingBottom: 24,
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
     },
-    title: { fontSize: 22, fontWeight: '800' },
+    headerLeft: { flex: 1 },
+    title: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
+    subtitle: { fontSize: 13, marginTop: 4 },
     addBtn: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 48,
+        height: 48,
+        borderRadius: 14,
         alignItems: 'center',
         justifyContent: 'center',
     },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32 },
-    emptyText: { fontSize: 16 },
-    row: { flexDirection: 'row', alignItems: 'center' },
-    flex: { flex: 1 },
-    serviceName: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
-    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-    pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-    modal: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '90%' },
-    modalTitle: { fontSize: 20, fontWeight: '800', marginBottom: 16 },
-    label: { fontSize: 13, fontWeight: '600', marginBottom: 8 },
-    serviceOption: {
+    emptyText: { fontSize: 16, fontWeight: '600' },
+    orderCard: { marginBottom: 4, padding: 16 },
+    orderHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+    orderIconBox: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+    orderInfo: { flex: 1 },
+    orderShopName: { fontSize: 15, fontWeight: '700' },
+    orderDate: { fontSize: 12, marginTop: 2 },
+    orderDivider: { height: 1, marginVertical: 12, opacity: 0.5 },
+    orderFooter: { gap: 8 },
+    orderDetailItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    orderDetailLabel: { fontSize: 13 },
+    orderDetailValue: { fontSize: 13, fontWeight: '600' },
+    overlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.4)', justifyContent: 'flex-end' },
+    modal: { borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, maxHeight: '90%' },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+    modalTitle: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5 },
+    modalLabel: { fontSize: 15, fontWeight: '700', marginBottom: 12 },
+    modalScroll: { paddingBottom: 24 },
+    modalShopRow: { gap: 10, paddingRight: 20, marginBottom: 24 },
+    modalShopItem: {
+        width: 140,
         borderWidth: 1.5,
-        borderRadius: 12,
+        borderRadius: 16,
         padding: 12,
-        marginBottom: 8,
-    },
-    manualAddBtn: {
-        height: 48,
-        borderRadius: 12,
-        flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
         gap: 8,
-        marginBottom: 8,
     },
-    manualAddText: {
-        color: '#fff',
-        fontWeight: '700',
-        fontSize: 15,
-    },
-    uploadBtn: {
-        height: 44,
-        borderWidth: 1,
-        borderRadius: 10,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        marginBottom: 12,
-    },
-    detectedList: {
-        borderRadius: 12,
-        padding: 12,
-        marginBottom: 16,
-    },
-    detectedTitle: { fontSize: 14, fontWeight: '700', marginBottom: 10 },
-    detectRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 },
-    detectLabel: { flex: 1, fontSize: 14, fontWeight: '500' },
-    countBtn: {
-        width: 28,
-        height: 28,
-        borderRadius: 6,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    miniInput: { width: 44, height: 32, borderWidth: 1, borderRadius: 6, textAlign: 'center', padding: 0, fontSize: 15, fontWeight: '600' },
-    itemsBadgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
-    minorBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-    input: {
-        height: 48,
-        borderWidth: 1.5,
-        borderRadius: 10,
-        paddingHorizontal: 14,
-        fontSize: 16,
-        marginBottom: 8,
-    },
-    totalPreview: { fontSize: 16, fontWeight: '700', marginBottom: 16 },
-    modalBtns: { flexDirection: 'row', gap: 12, marginTop: 8 },
-    // Item Picker Modal Styles
-    pickerModal: {
-        marginHorizontal: 20,
-        borderRadius: 20,
-        padding: 20,
-        maxHeight: '75%',
-        width: '90%',
-    },
-    pickerGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 12,
-        justifyContent: 'center',
-        paddingBottom: 8,
-    },
-    pickerItem: {
-        width: '45%',
-        maxWidth: 140,
-        height: 80,
-        borderRadius: 12,
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 8,
-        overflow: 'hidden',
-    },
-    pickerIconContainer: {
-        width: 40,
-        height: 40,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 4,
-    },
-    pickerItemText: {
-        fontSize: 12,
-        fontWeight: '600',
-        textAlign: 'center',
-    },
-    cancelPickerBtn: {
-        marginTop: 16,
-        height: 44,
-        borderWidth: 1,
-        borderRadius: 10,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-}); 
+    modalShopName: { fontSize: 13, fontWeight: '600', textAlign: 'center' },
+    manualAddSection: { marginVertical: 8, gap: 10, marginBottom: 24 },
+    actionBtn: { width: '100%', marginBottom: 0 },
+    itemsCard: { padding: 12, marginBottom: 24 },
+    itemsTitle: { fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 12 },
+    itemRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+    itemName: { fontSize: 14, fontWeight: '500' },
+    countControl: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    countIcon: { width: 28, height: 28, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+    countInput: { width: 32, textAlign: 'center', fontSize: 15, fontWeight: '700', padding: 0 },
+    itemDelete: { marginLeft: 4 },
+    pricePreview: { padding: 16, borderRadius: 16, marginBottom: 24 },
+    priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    priceVal: { fontSize: 18, fontWeight: '800' },
+    modalFooter: { marginTop: 8 },
+    confirmBtn: { width: '100%' },
+    pickerOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.6)', justifyContent: 'center', alignItems: 'center' },
+    pickerModal: { marginHorizontal: 20, borderRadius: 24, padding: 24, maxHeight: '75%', width: '90%' },
+    pickerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' },
+    pickerItem: { width: '30%', height: 90, borderRadius: 16, alignItems: 'center', justifyContent: 'center', padding: 8 },
+    pickerIconContainer: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+    pickerItemText: { fontSize: 11, fontWeight: '600' },
+    cancelPickerBtn: { marginTop: 24, height: 52, borderWidth: 1, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+    emptyHint: { fontSize: 14, marginTop: 4, textAlign: 'center' },
+});
+ 

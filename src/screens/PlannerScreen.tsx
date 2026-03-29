@@ -61,6 +61,15 @@ const FOOD_PREFERENCES = [
     { id: 'mixed', label: 'Mixed', icon: 'fast-food-outline' },
 ];
 
+const FEATURED_DESTINATIONS = [
+    { id: 'colombo', name: 'Colombo', tier: 'Premium', image: 'https://images.unsplash.com/photo-1552465011-b4e21bf6e79a?auto=format&fit=crop&q=80&w=400' },
+    { id: 'ella', name: 'Ella', tier: 'Premium', image: 'https://images.unsplash.com/photo-1546708973-b339540b5162?auto=format&fit=crop&q=80&w=400' },
+    { id: 'galle', name: 'Galle', tier: 'Premium', image: 'https://images.unsplash.com/photo-1627894483216-2138af692e32?auto=format&fit=crop&q=80&w=400' },
+    { id: 'kandy', name: 'Kandy', tier: 'Mid-range', image: 'https://images.unsplash.com/photo-1588598136841-36c1d1d6a11e?auto=format&fit=crop&q=80&w=400' },
+    { id: 'sigiriya', name: 'Sigiriya', tier: 'Mid-range', image: 'https://images.unsplash.com/photo-1578351123283-938749a46f48?auto=format&fit=crop&q=80&w=400' },
+    { id: 'jaffna', name: 'Jaffna', tier: 'Budget', image: 'https://images.unsplash.com/photo-1563200022-86db49488390?auto=format&fit=crop&q=80&w=400' },
+];
+
 const STATUS_COLORS: Record<string, string> = {
     active: '#22C55E',
     planning: '#6366F1',
@@ -303,6 +312,13 @@ export const PlannerScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
         if (details) {
             setSelectedPlace(details);
         }
+    };
+
+    const selectFeaturedDestination = (dest: any) => {
+        setDestination(dest.name);
+        setSearchQuery(dest.name);
+        setPlaceId(''); // Not using Google Place ID for featured ones
+        setSelectedPlace(null);
     };
 
     // Validate form
@@ -805,6 +821,27 @@ export const PlannerScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
                                                 </View>
                                             </TouchableOpacity>
                                         ))}
+                                    </View>
+                                )}
+
+                                {!showPredictions && searchQuery.length < 2 && (
+                                    <View style={styles.featuredSection}>
+                                        <Text style={[styles.featuredTitle, { color: theme.colors.text }]}>Featured Places</Text>
+                                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.featuredScroll}>
+                                            {FEATURED_DESTINATIONS.map((dest) => (
+                                                <TouchableOpacity 
+                                                    key={dest.id} 
+                                                    style={[styles.featuredCard, { backgroundColor: theme.colors.backgroundSecondary }]}
+                                                    onPress={() => selectFeaturedDestination(dest)}
+                                                >
+                                                    <Image source={{ uri: dest.image }} style={styles.featuredImage} />
+                                                    <View style={styles.featuredBadge}>
+                                                        <Text style={styles.featuredBadgeText}>{dest.tier}</Text>
+                                                    </View>
+                                                    <Text style={[styles.featuredName, { color: theme.colors.text }]}>{dest.name}</Text>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </ScrollView>
                                     </View>
                                 )}
                             </View>
@@ -1417,6 +1454,16 @@ const styles = StyleSheet.create({
     shareOptionText: { fontSize: 16, fontWeight: '500' },
     shareCancel: { borderTopWidth: 1, marginTop: 12, paddingTop: 16, alignItems: 'center' },
     shareCancelText: { fontSize: 16 },
+
+    // Featured Destinations
+    featuredSection: { marginTop: 16 },
+    featuredTitle: { fontSize: 14, fontWeight: '700', marginBottom: 12 },
+    featuredScroll: { gap: 12 },
+    featuredCard: { width: 140, borderRadius: 12, overflow: 'hidden', paddingBottom: 8 },
+    featuredImage: { width: '100%', height: 100 },
+    featuredBadge: { position: 'absolute', top: 8, left: 8, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
+    featuredBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+    featuredName: { fontSize: 14, fontWeight: '600', marginTop: 8, marginHorizontal: 8 },
 });
 
 export default PlannerScreen;

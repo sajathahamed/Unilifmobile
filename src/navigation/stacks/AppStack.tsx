@@ -6,6 +6,11 @@ import { FoodMenuScreen } from '@screens/FoodMenuScreen';
 import { CartScreen } from '@screens/CartScreen';
 import { OrderTrackingScreen } from '@screens/OrderTrackingScreen';
 import { VoidTripsScreen } from '@screens/VoidTripsScreen';
+import { TimetableScreen } from '@screens/TimetableScreen';
+import { DeliveryAdminLogin } from '../../screens/delivery/DeliveryAdminLogin';
+import { AdminDashboard } from '../../screens/delivery/AdminDashboard';
+import { DeliveryPersonLogin } from '../../screens/delivery/DeliveryPersonLogin';
+import { DeliveryPersonDashboard } from '../../screens/delivery/DeliveryPersonDashboard';
 
 const Stack = createNativeStackNavigator<AppStackParamList>();
 
@@ -24,5 +29,14 @@ export const AppStackNavigator = () => (
       component={VoidTripsScreen}
       options={{ headerShown: false }}
     />
+    <Stack.Screen
+      name="Timetable"
+      component={TimetableScreen}
+      options={{ title: 'Class Schedule' }}
+    />
+    <Stack.Screen name="DeliveryAdminLogin" component={DeliveryAdminLogin} options={{ headerShown: false }} />
+    <Stack.Screen name="DeliveryAdminDashboard" component={AdminDashboard} options={{ headerShown: false }} />
+    <Stack.Screen name="DeliveryPersonLogin" component={DeliveryPersonLogin} options={{ headerShown: false }} />
+    <Stack.Screen name="DeliveryPersonDashboard" component={DeliveryPersonDashboard} options={{ headerShown: false }} />
   </Stack.Navigator>
 );

@@ -13,12 +13,15 @@ export const moderateScale = (size: number, factor = 0.5) =>
   size + (scale(size) - size) * factor;
 
 export const spacing = {
-  xs: 4,
-  sm: 8,
+  none: 0,
+  xxs: 4,
+  xs: 8,
+  sm: 12,
   md: 16,
   lg: 24,
   xl: 32,
   xxl: 48,
+  xxxl: 64,
 };
 
 export const typography = {
@@ -45,14 +48,14 @@ export const typography = {
     }),
   },
   fontSize: {
-    xs: 12,
-    sm: 14,
-    md: 16,
-    lg: 18,
-    xl: 20,
-    xxl: 24,
-    xxxl: 32,
-    display: 40,
+    xs: 12,      // Captions
+    sm: 14,      // Secondary body
+    md: 16,      // Primary body
+    lg: 18,      // Small headings / UI labels
+    xl: 20,      // Section headings
+    xxl: 24,     // Page titles
+    xxxl: 32,    // Hero titles
+    display: 48, // Massive display text
   },
   lineHeight: {
     xs: 16,
@@ -62,49 +65,66 @@ export const typography = {
     xl: 32,
     xxl: 36,
     xxxl: 44,
-    display: 52,
+    display: 60,
   },
+  fontWeight: {
+    regular: '400' as const,
+    medium: '500' as const,
+    semiBold: '600' as const,
+    bold: '700' as const,
+    heavy: '800' as const,
+  }
 };
 
 export const borderRadius = {
+  none: 0,
   xs: 4,
   sm: 8,
   md: 12,
   lg: 16,
   xl: 24,
+  xxl: 32,
   full: 9999,
 };
 
 export const shadow = {
+  none: {
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+  },
   sm: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
-    elevation: 1,
+    elevation: 2,
   },
   md: {
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
   },
   lg: {
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  xl: {
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.12,
     shadowRadius: 16,
     elevation: 8,
   },
+  xl: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 12,
+  },
 };
+
 
 export const layout = {
   screenWidth: width,

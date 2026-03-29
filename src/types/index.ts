@@ -30,6 +30,10 @@ export type AuthStackParamList = {
   Login: undefined;
   Signup: undefined;
   ForgotPassword: undefined;
+  DeliveryAdminLogin: undefined;
+  DeliveryPersonLogin: undefined;
+  DeliveryAdminDashboard: undefined;
+  DeliveryPersonDashboard: undefined;
 };
 
 export type AppStackParamList = {
@@ -38,12 +42,17 @@ export type AppStackParamList = {
   Cart: undefined;
   OrderTracking: { orderId: number };
   VoidTrips: undefined;
+  Timetable: undefined;
+  DeliveryAdminLogin: undefined;
+  DeliveryAdminDashboard: undefined;
+  DeliveryPersonLogin: undefined;
+  DeliveryPersonDashboard: undefined;
 };
 
 export type MainTabParamList = {
-  Home: undefined;
   Food: undefined;
   Laundry: undefined;
+  Home: undefined;
   Planner: undefined;
   Profile: undefined;
 };

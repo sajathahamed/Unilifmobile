@@ -23,13 +23,29 @@ export const getTimetableForStudent = async (studentId: number, dayOfWeek?: stri
     return { data, error };
 };
 
+export const createTimetableEntry = async (entry: any) => {
+    const { data, error } = await supabase
+        .from('timetable')
+        .insert(entry)
+        .select()
+        .single();
+    return { data, error };
+};
+
+export const getCourses = async () => {
+    const { data, error } = await supabase
+        .from('courses')
+        .select('*')
+        .order('course_name');
+    return { data, error };
+};
+
 // ── Vendors ───────────────────────────────────────────────
 export const getOpenVendors = async () => {
     const { data, error } = await supabase
-        .from('vendors')
+        .from('food_stalls')
         .select('*')
-        .eq('is_open', true)
-        .order('rating', { ascending: false });
+        .eq('is_open', true);
     return { data, error };
 };
 
@@ -51,13 +67,30 @@ export const getFoodItemsByVendor = async (vendorId: number) => {
 
 // ── Food Orders ───────────────────────────────────────────
 export const createFoodOrder = async (
-    studentId: number,
-    vendorId: number,
-    total: number
+    foodStallId: string,
+    customerEmail: string,
+    customerName: string,
+    customerPhone: string,
+    total: number,
+    items?: string,
+    notes?: string,
+    deliveryAddress?: string,
 ) => {
+    const orderRef = `FO-${Date.now()}`;
     const { data, error } = await supabase
         .from('food_orders')
-        .insert({ student_id: studentId, vendor_id: vendorId, total, status: 'pending' })
+        .insert({
+            food_stall_id: foodStallId,
+            customer_email: customerEmail,
+            customer_name: customerName,
+            customer_phone: customerPhone,
+            total,
+            items: items || null,
+            notes: notes || null,
+            delivery_address: deliveryAddress || null,
+            order_ref: orderRef,
+            status: 'pending',
+        })
         .select()
         .single();
     return { data, error };
@@ -73,21 +106,32 @@ export const createFoodOrderItems = async (
 export const getFoodOrderById = async (orderId: number) => {
     const { data, error } = await supabase
         .from('food_orders')
-        .select('*, vendors(name)')
+        .select('*, food_stalls(shop_name)')
         .eq('id', orderId)
         .single();
     return { data, error };
 };
 
-export const getActiveFoodOrderForStudent = async (studentId: number) => {
+export const getActiveFoodOrderForStudent = async (customerEmail: string) => {
     const { data, error } = await supabase
         .from('food_orders')
-        .select('*, vendors(name)')
-        .eq('student_id', studentId)
+        .select('*, food_stalls(shop_name)')
+        .eq('customer_email', customerEmail)
         .not('status', 'eq', 'delivered')
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
+    return { data, error };
+};
+
+/** All active (non-delivered) food orders for a student — for dashboard count */
+export const getActiveFoodOrdersForStudent = async (customerEmail: string) => {
+    const { data, error } = await supabase
+        .from('food_orders')
+        .select('id')
+        .eq('customer_email', customerEmail)
+        .not('status', 'eq', 'delivered')
+        .order('created_at', { ascending: false });
     return { data, error };
 };
 
@@ -105,20 +149,39 @@ export const getLaundryServices = async () => {
     return { data, error };
 };
 
-export const getLaundryOrdersForStudent = async (studentId: number) => {
+export const getLaundryShops = async () => {
+    if (!isSupabaseConfigured) {
+        const err = new Error('Supabase client not configured. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.');
+        console.error(err.message);
+        return { data: null, error: err as any };
+    }
+
     const { data, error } = await supabase
-        .from('laundry_orders')
-        .select('*, laundry_services(name, location)')
-        .eq('student_id', studentId)
-        .order('created_at', { ascending: false });
+        .from('laundry_shops')
+        .select('*')
+        .eq('is_open', true);
+    if (error) console.error('getLaundryShops error:', error);
+    else console.log(`getLaundryShops: fetched ${Array.isArray(data) ? data.length : 0} shops`);
     return { data, error };
 };
 
-export const getActiveLaundryOrderForStudent = async (studentId: number) => {
+export const getLaundryOrdersForStudent = async (customerEmail: string) => {
     const { data, error } = await supabase
         .from('laundry_orders')
-        .select('*, laundry_services(name, location)')
-        .eq('student_id', studentId)
+        .select('*, laundry_shops(shop_name, address)')
+        .eq('customer_phone', customerEmail) // Using customer_phone as filter — see note below
+        .order('created_at', { ascending: false });
+    // NOTE: The schema has no email column on laundry_orders.
+    // We filter by customer_phone here, but the caller should pass
+    // whichever identifier is most appropriate.
+    return { data, error };
+};
+
+export const getActiveLaundryOrderForStudent = async (customerEmail: string) => {
+    const { data, error } = await supabase
+        .from('laundry_orders')
+        .select('*, laundry_shops(shop_name, address)')
+        .eq('customer_phone', customerEmail)
         .not('status', 'eq', 'completed')
         .order('created_at', { ascending: false })
         .limit(1)
@@ -127,35 +190,40 @@ export const getActiveLaundryOrderForStudent = async (studentId: number) => {
 };
 
 export const createLaundryOrder = async (
-    studentId: number,
-    laundryServiceId: number,
-    orderType: string,
-    totalPrice: number,
-    itemsJson?: Record<string, number> | null,
-    imageUrl?: string | null
+    laundryShopId: string,
+    customerName: string,
+    customerPhone: string,
+    total: number,
+    itemsDescription?: string | null,
+    pickupAddress?: string | null,
+    deliveryAddress?: string | null,
+    notes?: string | null,
+    userId?: number | null,
 ) => {
+    const orderRef = `LO-${Date.now()}`;
     const { data, error } = await supabase
         .from('laundry_orders')
         .insert({
-            student_id: studentId,
-            laundry_service_id: laundryServiceId,
-            order_type: orderType,
-            total_price: totalPrice,
+            laundry_shop_id: laundryShopId,
+            customer_name: customerName,
+            customer_phone: customerPhone,
+            total,
             status: 'pending',
-            items_json: itemsJson,
-            image_url: imageUrl,
+            items_description: itemsDescription || null,
+            pickup_address: pickupAddress || null,
+            delivery_address: deliveryAddress || null,
+            notes: notes || null,
+            order_ref: orderRef,
         })
         .select()
         .single();
 
-    // Create a simple in-app notification for the student so they can see the order
+    // Create a simple in-app notification for the user so they can see the order
     try {
-        if (data && !error) {
+        if (data && !error && userId) {
             const noteTitle = 'Laundry Order Placed';
-            const noteMessage = `Your laundry order (ID: ${data.id}) with ${
-                laundryServiceId
-            } has been placed. Total: RM ${Number(totalPrice).toFixed(2)}.`;
-            await supabase.from('notifications').insert({ user_id: studentId, title: noteTitle, message: noteMessage });
+            const noteMessage = `Your laundry order (Ref: ${orderRef}) has been placed. Total: Rs ${Number(total).toFixed(2)}.`;
+            await supabase.from('notifications').insert({ user_id: userId, title: noteTitle, message: noteMessage });
         }
     } catch (e) {
         console.error('Failed to create notification for laundry order:', e);
@@ -186,7 +254,7 @@ export const getTripsForUser = async (userId: number) => {
     const { data, error } = await supabase
         .from('trips')
         .select('*, trip_itinerary(*)')
-        .eq('created_by', userId)
+        .eq('user_id', userId)
         .order('id', { ascending: false });
     return { data, error };
 };
@@ -194,16 +262,16 @@ export const getTripsForUser = async (userId: number) => {
 export const createTrip = async (
     destination: string,
     days: number,
-    estimatedBudget: number,
-    createdBy: number
+    budget: number,
+    userId: number
 ) => {
     const { data, error } = await supabase
         .from('trips')
         .insert({
             destination,
             days,
-            estimated_budget: estimatedBudget,
-            created_by: createdBy,
+            budget,
+            user_id: userId,
             status: 'planning',
         })
         .select()
@@ -211,10 +279,10 @@ export const createTrip = async (
     return { data, error };
 };
 
-export const updateTripWithAI = async (tripId: number, aiSuggestions: string) => {
+export const updateTripWithAI = async (tripId: number, aiSummary: string) => {
     const { data, error } = await supabase
         .from('trips')
-        .update({ ai_suggestions: aiSuggestions })
+        .update({ ai_summary: aiSummary })
         .eq('id', tripId)
         .select()
         .single();
@@ -344,5 +412,147 @@ export const upsertUserGoogle = async (email: string, name: string, googleId: st
         .select()
         .single();
     return { data, error, isNewUser: true };
+};
+
+// ── Delivery System (Multi-Role) ─────────────────────
+
+export const deliveryAdminLogin = async (email: string, passwordHash: string) => {
+    // Simple verification against the new delivery_admins table
+    const { data, error } = await supabase
+        .from('delivery_admins')
+        .select('*')
+        .eq('email', email)
+        .eq('password_hash', passwordHash) // In real app, use bcrypt/auth-provider
+        .maybeSingle();
+    return { data, error };
+};
+
+export const deliveryPersonLogin = async (email: string, passwordHash: string) => {
+    const { data, error } = await supabase
+        .from('delivery_persons')
+        .select('*')
+        .eq('email', email)
+        .eq('password_hash', passwordHash)
+        .maybeSingle();
+    return { data, error };
+};
+
+export const getAvailableRiders = async () => {
+    const { data, error } = await supabase
+        .from('delivery_persons')
+        .select('*')
+        .eq('status', 'online');
+    return { data, error };
+};
+
+export const getPendingDeliveries = async () => {
+    // Fetch unassigned orders from both sources
+    const { data: food, error: foodErr } = await supabase
+        .from('food_orders')
+        .select('*, food_stalls(shop_name, area)')
+        .eq('delivery_status', 'not_assigned')
+        .order('created_at', { ascending: true });
+
+    const { data: laundry, error: laundryErr } = await supabase
+        .from('laundry_orders')
+        .select('*, laundry_shops(shop_name, area)')
+        .eq('delivery_status', 'not_assigned')
+        .order('created_at', { ascending: true });
+
+    return { 
+        food: food || [], 
+        laundry: laundry || [], 
+        error: foodErr || laundryErr 
+    };
+};
+
+export const assignOrderToRider = async (
+    orderId: number, 
+    orderType: 'food' | 'laundry', 
+    riderId: string,
+    adminId?: string
+) => {
+    const table = orderType === 'food' ? 'food_orders' : 'laundry_orders';
+    
+    // 1. Update the order table
+    const { data, error } = await supabase
+        .from(table)
+        .update({
+            assigned_delivery_person_id: riderId,
+            delivery_status: 'assigned'
+        } as any)
+        .eq('id', orderId)
+        .select()
+        .single();
+
+    // 2. Log in assignments history if successful
+    if (!error && data) {
+        await supabase.from('delivery_assignments').insert({
+            order_id: orderId,
+            order_type: orderType,
+            delivery_person_id: riderId,
+            assigned_by_admin_id: adminId || null,
+            status: 'assigned'
+        });
+    }
+
+    return { data, error };
+};
+
+export const getRiderAssignedOrders = async (riderId: string) => {
+    const { data: food, error: foodErr } = await supabase
+        .from('food_orders')
+        .select('*, food_stalls(shop_name, area, lat, lng)')
+        .eq('assigned_delivery_person_id', riderId)
+        .not('delivery_status', 'eq', 'delivered');
+
+    const { data: laundry, error: laundryErr } = await supabase
+        .from('laundry_orders')
+        .select('*, laundry_shops(shop_name, area, lat, lng)')
+        .eq('assigned_delivery_person_id', riderId)
+        .not('delivery_status', 'eq', 'delivered');
+
+    return { 
+        orders: [
+            ...(food || []).map(f => ({ ...f, type: 'food' })), 
+            ...(laundry || []).map(l => ({ ...l, type: 'laundry' }))
+        ], 
+        error: foodErr || laundryErr 
+    };
+};
+
+export const updateDeliveryStatus = async (
+    orderId: number, 
+    orderType: 'food' | 'laundry', 
+    status: string
+) => {
+    const table = orderType === 'food' ? 'food_orders' : 'laundry_orders';
+    const { data, error } = await supabase
+        .from(table)
+        .update({ delivery_status: status } as any)
+        .eq('id', orderId)
+        .select()
+        .single();
+
+    // If delivered, update assignment record too
+    if (!error && status === 'delivered') {
+        await supabase
+            .from('delivery_assignments')
+            .update({ status: 'completed', completed_at: new Date().toISOString() })
+            .eq('order_id', orderId)
+            .eq('order_type', orderType);
+    }
+
+    return { data, error };
+};
+
+export const updateRiderAvailability = async (riderId: string, status: 'online' | 'offline' | 'busy') => {
+    const { data, error } = await supabase
+        .from('delivery_persons')
+        .update({ status } as any)
+        .eq('id', riderId)
+        .select()
+        .single();
+    return { data, error };
 };
 

@@ -10,7 +10,6 @@ import { ResponsiveContainer } from '@components/layout/ResponsiveContainer';
 import { useAuth } from '@context/AuthContext';
 import { useToast } from '@hooks/useToast';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type LoginScreenProps = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
@@ -118,42 +117,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
                 />
               </View>
 
-              <View style={styles.deliveryPortals}>
-                <Text style={[styles.deliveryTitle, { color: theme.colors.textTertiary }]}>DELIVERY PERSONNEL</Text>
-                <View style={styles.portalButtons}>
-                  <TouchableOpacity 
-                    style={[styles.portalBtn, { backgroundColor: '#DAA520' + '15', borderColor: '#DAA520' }]}
-                    onPress={async () => {
-                      await AsyncStorage.setItem('delivery_rider', JSON.stringify({
-                        id: 'demo-rider-1',
-                        name: 'Demo Rider',
-                        status: 'offline',
-                        phone: '0712345678',
-                        vehicle_type: 'Motorcycle'
-                      }));
-                      navigation.navigate('DeliveryPersonDashboard');
-                    }}
-                  >
-                    <Ionicons name="bicycle" size={18} color="#DAA520" />
-                    <Text style={[styles.portalBtnText, { color: '#DAA520' }]}>Rider Dashboard</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={[styles.portalBtn, { backgroundColor: theme.colors.primary + '15', borderColor: theme.colors.primary }]}
-                    onPress={async () => {
-                      await AsyncStorage.setItem('delivery_admin', JSON.stringify({
-                        id: 'demo-admin-1',
-                        name: 'Demo Admin',
-                        email: 'admin@unilife.com'
-                      }));
-                      navigation.navigate('DeliveryAdminDashboard');
-                    }}
-                  >
-                    <Ionicons name="shield-checkmark" size={18} color={theme.colors.primary} />
-                    <Text style={[styles.portalBtnText, { color: theme.colors.primary }]}>Admin Portal</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
               <View style={styles.footer}>
                 <Text style={[styles.footerText, { color: theme.colors.textSecondary }]}>
                   Don't have an account?
@@ -242,38 +205,6 @@ const styles = StyleSheet.create({
   },
   signupText: {
     fontSize: 15,
-    fontWeight: '700',
-  },
-  deliveryPortals: {
-    marginTop: 10,
-    marginBottom: 20,
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#00000010',
-  },
-  deliveryTitle: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  portalButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  portalBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  portalBtnText: {
-    fontSize: 14,
     fontWeight: '700',
   },
 });

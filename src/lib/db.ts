@@ -532,32 +532,69 @@ export const upsertUserGoogle = async (email: string, name: string, googleId: st
 // ── Delivery System (Multi-Role) ─────────────────────
 
 export const deliveryAdminLogin = async (email: string, passwordHash: string) => {
-    // Simple verification against the new delivery_admins table
     const { data, error } = await supabase
-        .from('delivery_admins')
+        .from('users')
         .select('*')
         .eq('email', email)
-        .eq('password_hash', passwordHash) // In real app, use bcrypt/auth-provider
+        .in('role', ['admin', 'super_admin'])
         .maybeSingle();
     return { data, error };
 };
 
 export const deliveryPersonLogin = async (email: string, passwordHash: string) => {
+    // Legacy method retained for compatibility with old screens.
     const { data, error } = await supabase
-        .from('delivery_persons')
+        .from('users')
         .select('*')
         .eq('email', email)
-        .eq('password_hash', passwordHash)
+        .eq('role', 'delivery')
         .maybeSingle();
     return { data, error };
 };
 
 export const getAvailableRiders = async () => {
-    const { data, error } = await supabase
+    const { data: riders, error } = await supabase
+        .from('rider_profiles')
+        .select('user_id, phone, vehicle_type, online_status')
+        .eq('online_status', 'online');
+
+    if (!error && riders) {
+        const riderIds = riders.map(r => Number(r.user_id)).filter(Boolean);
+        if (riderIds.length === 0) {
+            return { data: [], error: null };
+        }
+
+        const { data: users, error: usersError } = await supabase
+            .from('users')
+            .select('id, name, email, role')
+            .in('id', riderIds)
+            .eq('role', 'delivery');
+
+        if (usersError) {
+            return { data: [], error: usersError };
+        }
+
+        const mapped = users.map(user => {
+            const profile = riders.find(r => Number(r.user_id) === Number(user.id));
+            return {
+                id: String(user.id),
+                name: user.name,
+                email: user.email,
+                phone: profile?.phone || null,
+                vehicle_type: profile?.vehicle_type || 'Rider',
+                status: profile?.online_status || 'offline',
+            };
+        });
+
+        return { data: mapped, error: null };
+    }
+
+    // Fallback for legacy schema.
+    const legacy = await supabase
         .from('delivery_persons')
         .select('*')
         .eq('status', 'online');
-    return { data, error };
+    return { data: legacy.data || [], error: legacy.error || error };
 };
 
 export const getPendingDeliveries = async () => {
@@ -565,13 +602,13 @@ export const getPendingDeliveries = async () => {
     const { data: food, error: foodErr } = await supabase
         .from('food_orders')
         .select('*, food_stalls(shop_name, area)')
-        .eq('delivery_status', 'not_assigned')
+        .in('delivery_status', ['not_assigned', 'pending'])
         .order('created_at', { ascending: true });
 
     const { data: laundry, error: laundryErr } = await supabase
         .from('laundry_orders')
         .select('*, laundry_shops(shop_name, area)')
-        .eq('delivery_status', 'not_assigned')
+        .in('delivery_status', ['not_assigned', 'pending'])
         .order('created_at', { ascending: true });
 
     return { 
@@ -584,47 +621,58 @@ export const getPendingDeliveries = async () => {
 export const assignOrderToRider = async (
     orderId: number, 
     orderType: 'food' | 'laundry', 
-    riderId: string,
-    adminId?: string
+    riderId: string | number,
+    adminId?: string | number
 ) => {
     const table = orderType === 'food' ? 'food_orders' : 'laundry_orders';
+    const riderUserId = Number(riderId);
+    const adminUserId = adminId != null ? Number(adminId) : null;
     
-    // 1. Update the order table
-    const { data, error } = await supabase
+    console.log(`📝 [DB] Updating ${table} order ${orderId}:`, { assigned_delivery_person_id: riderUserId, delivery_status: 'assigned' });
+    
+    // 1. Update the order table (without .select().single() to avoid PGRST116 error)
+    const { error } = await supabase
         .from(table)
         .update({
-            assigned_delivery_person_id: riderId,
+            assigned_delivery_person_id: riderUserId,
             delivery_status: 'assigned'
         } as any)
-        .eq('id', orderId)
-        .select()
-        .single();
+        .eq('id', orderId);
 
-    // 2. Log in assignments history if successful
-    if (!error && data) {
-        await supabase.from('delivery_assignments').insert({
+    // 2. If update successful, log in assignments history
+    if (!error) {
+        console.log(`✅ [DB] Order updated successfully, logging assignment...`);
+        const assignRes = await supabase.from('delivery_assignments').insert({
             order_id: orderId,
             order_type: orderType,
-            delivery_person_id: riderId,
-            assigned_by_admin_id: adminId || null,
+            delivery_person_id: riderUserId,
+            assigned_by_admin_id: adminUserId,
             status: 'assigned'
         });
+        if (assignRes.error) {
+            console.error(`❌ [DB] Failed to log assignment:`, assignRes.error);
+        } else {
+            console.log(`✅ [DB] Assignment logged successfully`);
+        }
+    } else {
+        console.error(`❌ [DB] Order update failed:`, error);
     }
 
-    return { data, error };
+    return { data: null, error };
 };
 
 export const getRiderAssignedOrders = async (riderId: string) => {
+    const riderUserId = Number(riderId);
     const { data: food, error: foodErr } = await supabase
         .from('food_orders')
         .select('*, food_stalls(shop_name, area, lat, lng)')
-        .eq('assigned_delivery_person_id', riderId)
+        .eq('assigned_delivery_person_id', riderUserId)
         .not('delivery_status', 'eq', 'delivered');
 
     const { data: laundry, error: laundryErr } = await supabase
         .from('laundry_orders')
         .select('*, laundry_shops(shop_name, area, lat, lng)')
-        .eq('assigned_delivery_person_id', riderId)
+        .eq('assigned_delivery_person_id', riderUserId)
         .not('delivery_status', 'eq', 'delivered');
 
     return { 
@@ -663,11 +711,44 @@ export const updateDeliveryStatus = async (
 
 export const updateRiderAvailability = async (riderId: string, status: 'online' | 'offline' | 'busy') => {
     const { data, error } = await supabase
+        .from('rider_profiles')
+        .upsert({
+            user_id: Number(riderId),
+            online_status: status,
+        } as any)
+        .select()
+        .single();
+
+    if (!error) {
+        return { data, error: null };
+    }
+
+    // Fallback for legacy schema.
+    const legacy = await supabase
         .from('delivery_persons')
         .update({ status } as any)
         .eq('id', riderId)
         .select()
         .single();
-    return { data, error };
+    return { data: legacy.data, error: legacy.error || error };
+};
+
+export const getRiderAvailability = async (riderId: string) => {
+    const { data, error } = await supabase
+        .from('rider_profiles')
+        .select('online_status')
+        .eq('user_id', Number(riderId))
+        .maybeSingle();
+
+    if (!error) {
+        return { status: (data as any)?.online_status || 'offline', error: null };
+    }
+
+    const legacy = await supabase
+        .from('delivery_persons')
+        .select('status')
+        .eq('id', riderId)
+        .maybeSingle();
+    return { status: (legacy.data as any)?.status || 'offline', error: legacy.error || error };
 };
 

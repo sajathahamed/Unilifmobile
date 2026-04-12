@@ -15,10 +15,11 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme';
 import { getPendingDeliveries, getAvailableRiders, assignOrderToRider } from '../../lib/db';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '@context/AuthContext';
 
 export const AdminDashboard: React.FC<{ navigation: any }> = ({ navigation }) => {
     const { theme } = useTheme();
+    const { userProfile, signOut } = useAuth();
     const [admin, setAdmin] = useState<any>(null);
     const [foodOrders, setFoodOrders] = useState<any[]>([]);
     const [laundryOrders, setLaundryOrders] = useState<any[]>([]);
@@ -32,14 +33,15 @@ export const AdminDashboard: React.FC<{ navigation: any }> = ({ navigation }) =>
     const [assigning, setAssigning] = useState(false);
 
     useEffect(() => {
+        console.log('🔧 [ADMIN] Dashboard mounted', { userId: userProfile?.id, userName: userProfile?.name });
         loadData();
-    }, []);
+    }, [userProfile?.id]);
 
     const loadData = async () => {
         setLoading(true);
+        console.log('📥 [ADMIN] Loading dashboard data...');
         try {
-            const adminStr = await AsyncStorage.getItem('delivery_admin');
-            if (adminStr) setAdmin(JSON.parse(adminStr));
+            setAdmin(userProfile);
 
             const [deliveriesRes, ridersRes] = await Promise.all([
                 getPendingDeliveries(),
@@ -47,19 +49,21 @@ export const AdminDashboard: React.FC<{ navigation: any }> = ({ navigation }) =>
             ]);
 
             if (deliveriesRes.error) {
-                console.error('Error fetching deliveries:', deliveriesRes.error);
+                console.error('❌ [ADMIN] Error fetching deliveries:', deliveriesRes.error);
             } else {
+                console.log('✅ [ADMIN] Deliveries loaded:', { food: deliveriesRes.food.length, laundry: deliveriesRes.laundry.length });
                 setFoodOrders(deliveriesRes.food);
                 setLaundryOrders(deliveriesRes.laundry);
             }
 
             if (ridersRes.error) {
-                console.error('Error fetching riders:', ridersRes.error);
+                console.error('❌ [ADMIN] Error fetching riders:', ridersRes.error);
             } else {
+                console.log('✅ [ADMIN] Riders loaded:', ridersRes.data?.length || 0);
                 setRiders(ridersRes.data || []);
             }
         } catch (err) {
-            console.error('AdminDashboard load error:', err);
+            console.error('❌ [ADMIN] Dashboard load error:', err);
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -80,6 +84,7 @@ export const AdminDashboard: React.FC<{ navigation: any }> = ({ navigation }) =>
         if (!selectedOrder) return;
 
         setAssigning(true);
+        console.log('📦 [ADMIN] Assigning order:', { orderId: selectedOrder.id, orderType: selectedOrder.type, riderId });
         try {
             const { error } = await assignOrderToRider(
                 selectedOrder.id,
@@ -89,13 +94,18 @@ export const AdminDashboard: React.FC<{ navigation: any }> = ({ navigation }) =>
             );
 
             if (error) {
-                Alert.alert('Assignment Error', 'Successfully failed to assign order.');
+                console.error('❌ [ADMIN] Assignment failed:', error);
+                Alert.alert('Assignment Failed', error.message || 'Failed to assign order. Please try again.');
             } else {
-                Alert.alert('Success', 'Order assigned successfully.');
+                console.log('✅ [ADMIN] Order assigned successfully!', { orderId: selectedOrder.id, riderId });
+                Alert.alert('Success', 'Order assigned successfully!');
                 setAssignmentModalVisible(false);
-                loadData();
+                setTimeout(() => {
+                    navigation.navigate('DeliveryAssignments');
+                }, 500);
             }
         } catch (err) {
+            console.error('❌ [ADMIN] Assignment error:', err);
             Alert.alert('Error', 'Communication error with server.');
         } finally {
             setAssigning(false);
@@ -103,8 +113,7 @@ export const AdminDashboard: React.FC<{ navigation: any }> = ({ navigation }) =>
     };
 
     const handleLogout = async () => {
-        await AsyncStorage.removeItem('delivery_admin');
-        navigation.replace('DeliveryAdminLogin');
+        await signOut();
     };
 
     const OrderCard = ({ item, type }: { item: any; type: 'food' | 'laundry' }) => (
@@ -140,6 +149,10 @@ export const AdminDashboard: React.FC<{ navigation: any }> = ({ navigation }) =>
                     <Ionicons name="person-outline" size={14} color={theme.colors.textSecondary} />
                     <Text style={[styles.infoText, { color: theme.colors.textSecondary }]}>{item.customer_name}</Text>
                 </View>
+                <View style={styles.infoRow}>
+                    <Ionicons name="call-outline" size={14} color={theme.colors.textSecondary} />
+                    <Text style={[styles.infoText, { color: theme.colors.textSecondary }]}>{item.customer_phone || 'No contact number'}</Text>
+                </View>
             </View>
             
             <View style={[styles.cardFooter, { borderTopColor: theme.colors.border }]}>
@@ -168,9 +181,14 @@ export const AdminDashboard: React.FC<{ navigation: any }> = ({ navigation }) =>
                     <Text style={[styles.welcome, { color: theme.colors.textSecondary }]}>Administrator</Text>
                     <Text style={[styles.name, { color: theme.colors.text }]}>Assignment Hub</Text>
                 </View>
-                <TouchableOpacity onPress={handleLogout} style={[styles.logoutBtn, { backgroundColor: theme.colors.surface }]}>
-                    <Ionicons name="log-out-outline" size={24} color={theme.colors.error} />
-                </TouchableOpacity>
+                <View style={styles.headerActions}>
+                    <TouchableOpacity onPress={() => navigation.navigate('DeliveryAssignments')} style={[styles.actionBtn, { backgroundColor: theme.colors.surface }]}>
+                        <Ionicons name="list-outline" size={24} color={theme.colors.primary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleLogout} style={[styles.actionBtn, { backgroundColor: theme.colors.surface }]}>
+                        <Ionicons name="log-out-outline" size={24} color={theme.colors.error} />
+                    </TouchableOpacity>
+                </View>
             </View>
 
             <ScrollView 
@@ -184,18 +202,17 @@ export const AdminDashboard: React.FC<{ navigation: any }> = ({ navigation }) =>
                             <Text style={styles.countText}>{foodOrders.length + laundryOrders.length}</Text>
                         </View>
                     </View>
+                    {foodOrders.length === 0 && laundryOrders.length === 0 && (
+                        <View style={styles.emptyContainer}>
+                            <Ionicons name="checkmark-circle-outline" size={48} color={theme.colors.success} />
+                            <Text style={[styles.emptyText, { color: theme.colors.text }]}>All orders assigned!</Text>
+                            <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>No pending orders at the moment.</Text>
+                        </View>
+                    )}
 
                     {[...foodOrders.map(o => ({ ...o, type: 'food' })), ...laundryOrders.map(o => ({ ...o, type: 'laundry' }))].map((order) => (
                         <OrderCard key={order.type + order.id} item={order} type={order.type as any} />
                     ))}
-
-                    {foodOrders.length === 0 && laundryOrders.length === 0 && (
-                        <View style={styles.emptyContainer}>
-                            <Ionicons name="sparkles" size={48} color={theme.colors.border} />
-                            <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>All caught up!</Text>
-                            <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>No pending orders to assign.</Text>
-                        </View>
-                    )}
                 </View>
             </ScrollView>
 
@@ -257,12 +274,13 @@ export const AdminDashboard: React.FC<{ navigation: any }> = ({ navigation }) =>
 const styles = StyleSheet.create({
     safe: { flex: 1 },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 24, paddingBottom: 16 },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 24, paddingBottom: 16 },
     welcome: { fontSize: 13, fontWeight: '600', textTransform: 'uppercase' },
-    name: { fontSize: 24, fontWeight: '800' },
-    logoutBtn: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', elevation: 2 },
+    name: { fontSize: 24, fontWeight: '800', marginTop: 8 },
+    headerActions: { flexDirection: 'row', gap: 8 },
+    actionBtn: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', elevation: 2 },
     container: { flex: 1 },
-    section: { padding: 24, paddingTop: 8 },
+    section: { padding: 16, paddingTop: 8, paddingBottom: 32 },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
     sectionTitle: { fontSize: 18, fontWeight: '700' },
     countBadge: { paddingHorizontal: 10, paddingVertical: 2, borderRadius: 10 },
@@ -280,9 +298,9 @@ const styles = StyleSheet.create({
     priceText: { fontSize: 15, fontWeight: '800' },
     assignBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
     assignBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-    emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },
+    emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 80, gap: 12 },
     emptyText: { fontSize: 18, fontWeight: '700' },
-    emptySubtext: { fontSize: 14, textAlign: 'center' },
+    emptySubtext: { fontSize: 14, textAlign: 'center', paddingHorizontal: 24 },
     
     // Modal
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },

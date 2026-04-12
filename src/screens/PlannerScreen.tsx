@@ -24,10 +24,11 @@ import { Button } from '@components/ui/Button';
 import { ResponsiveContainer } from '@components/layout/ResponsiveContainer';
 import { useAuth } from '@context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
-import { generateTripPlanWithDeepSeek, TripPlanResponse, convertLKRToUSD, checkAIConnection, setAIStatusCallback, AIStatus } from '../services/deepseek';
+import { generateTripPlanWithGemini, TripPlanResponse, convertUSDToLKR, calculateBudgetSufficiency, DESTINATION_TIERS, isGeminiConfigured } from '../services/gemini-trip-planner';
 import { generateTripPDF, shareTripPDF, printTripPlan } from '../services/pdfGenerator';
 import { shareViaNative, shareViaWhatsApp, shareViaEmail, makePhoneCall, openBookingLink } from '../services/shareService';
 import { createTripPlan, getTripPlansForUser, voidTripPlan, TripPlanInsert } from '@lib/db';
+import { validateTripPlannerForm, TRIP_PLANNER_VALIDATION, getErrorMessage } from '@utils/validationUtils';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -224,23 +225,16 @@ export const PlannerScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
     const [pdfGenerating, setPdfGenerating] = useState(false);
     const [generatedPdfUri, setGeneratedPdfUri] = useState<string | null>(null);
 
-    // AI Status state
-    const [aiStatus, setAiStatus] = useState<AIStatus>('idle');
-    const [aiMessage, setAiMessage] = useState<string>('Checking AI...');
+    // Form validation state
+    const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+    const [formWarnings, setFormWarnings] = useState<string[]>([]);
 
-    // Check AI connection on mount
+    // AI Status state - simplified for Gemini
+    const [aiMessage, setAiMessage] = useState<string>(isGeminiConfigured() ? '✓ Gemini API Ready' : '⚠ Gemini API Not Configured');
+
+    // Initialize AI check
     useEffect(() => {
-        const checkAI = async () => {
-            const result = await checkAIConnection();
-            setAiMessage(result.message);
-        };
-        checkAI();
-        
-        // Set up status callback
-        setAIStatusCallback((status, message) => {
-            setAiStatus(status);
-            if (message) setAiMessage(message);
-        });
+        setAiMessage(isGeminiConfigured() ? '✓ Gemini API Ready' : '⚠ Gemini API Not Configured');
     }, []);
 
     // Load trips from database
@@ -321,39 +315,65 @@ export const PlannerScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
         setSelectedPlace(null);
     };
 
-    // Validate form
-    const validateForm = (): string | null => {
-        if (!destination.trim()) return 'Please enter a destination';
+    // Validate form with comprehensive validation
+    const validateFormComprehensive = (): boolean => {
+        const result = validateTripPlannerForm({
+            destination,
+            days,
+            budget,
+            travelers,
+            travelType,
+            roomType,
+            transportMode,
+            foodPreference,
+            destinationTiers: DESTINATION_TIERS,
+        });
 
-        const daysNum = parseInt(days);
-        if (isNaN(daysNum) || daysNum < 1) return 'Duration must be at least 1 day';
-        if (daysNum > 30) return 'Duration cannot exceed 30 days';
+        setFormErrors(result.errors);
+        setFormWarnings(result.warnings);
 
-        const budgetNum = parseFloat(budget);
-        if (isNaN(budgetNum) || budgetNum <= 0) return 'Budget must be greater than 0';
+        if (!result.valid) {
+            const errorMessage = getErrorMessage(result.errors);
+            Alert.alert('Validation Error', errorMessage);
+            return false;
+        }
 
-        const travelersNum = parseInt(travelers);
-        if (isNaN(travelersNum) || travelersNum < 1) return 'Number of travelers must be at least 1';
-
-        return null;
+        return true;
     };
 
-    // Generate trip plan with AI
+    // Generate trip plan with Gemini
     const handleGeneratePlan = async () => {
-        const error = validateForm();
-        if (error) {
-            Alert.alert('Validation Error', error);
+        if (!validateFormComprehensive()) {
             return;
         }
 
+        // Show budget warning if any
+        if (formWarnings.length > 0) {
+            const warning = formWarnings[0];
+            Alert.alert('Budget Warning', warning, [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Continue',
+                    onPress: () => proceedWithPlanGeneration(),
+                },
+            ]);
+        } else {
+            proceedWithPlanGeneration();
+        }
+    };
+
+    // Proceed with actual plan generation
+    const proceedWithPlanGeneration = async () => {
         setSubmitting(true);
         setGeneratingPlan(true);
-        console.log('[TRIP PLANNER] Starting plan generation...');
+        setAiMessage('🤖 Generating trip plan with Gemini...');
+
+        console.log('[TRIP PLANNER] Starting Gemini plan generation...');
         console.log('[TRIP PLANNER] Destination:', destination.trim());
         console.log('[TRIP PLANNER] Days:', days, 'Budget:', budget, 'Travelers:', travelers);
 
         try {
-            const tripPlan = await generateTripPlanWithDeepSeek({
+            const tripPlan = await generateTripPlanWithGemini({
                 destination: destination.trim(),
                 days: parseInt(days),
                 budget: parseFloat(budget),
@@ -368,18 +388,19 @@ export const PlannerScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
             console.log('[TRIP PLANNER] Summary:', tripPlan.summary);
             console.log('[TRIP PLANNER] Total Cost:', tripPlan.total_cost_lkr, 'LKR');
             console.log('[TRIP PLANNER] Days in plan:', tripPlan.daily_plan?.length);
-            console.log('[TRIP PLANNER] Hotels:', tripPlan.hotel_details?.length);
             console.log('[TRIP PLANNER] Budget Sufficient:', tripPlan.budget_sufficient);
+
+            setAiMessage('✓ Plan generated successfully!');
 
             // Check if budget is sufficient
             if (!tripPlan.budget_sufficient) {
                 Alert.alert(
                     'Budget Insufficient',
-                    tripPlan.budget_message || 'Your budget is not enough for this destination and selected days. Please increase budget or reduce days.',
+                    tripPlan.budget_message || 'Your budget is not enough for this destination and selected days. Continue to adjust or increase budget.',
                     [
-                        { text: 'Adjust & Retry', style: 'cancel' },
-                        { 
-                            text: 'Continue Anyway', 
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                            text: 'Continue',
                             onPress: () => saveTripPlan(tripPlan),
                         },
                     ]
@@ -392,6 +413,7 @@ export const PlannerScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
             await saveTripPlan(tripPlan);
         } catch (error: any) {
             console.error('[TRIP PLANNER] ✗ Error:', error);
+            setAiMessage('✗ Plan generation failed');
             Alert.alert('Error', error.message || 'Failed to generate trip plan. Please try again.');
             setSubmitting(false);
             setGeneratingPlan(false);
@@ -470,12 +492,14 @@ export const PlannerScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
         setDays('');
         setBudget('');
         setTravelers('1');
-        setTravelType('solo');
+        setTravelType('solo'); // Don't auto-change based on travelers
         setRoomType('standard');
         setTransportMode('car');
         setFoodPreference('mixed');
         setPredictions([]);
         setShowPredictions(false);
+        setFormErrors({});
+        setFormWarnings([]);
     };
 
     // View existing trip plan
@@ -491,6 +515,7 @@ export const PlannerScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
             travel_tips: trip.travel_tips_json || [],
             budget_sufficient: trip.budget_sufficient,
             budget_message: trip.budget_message,
+            total_cost_usd: 0
         };
 
         setCurrentPlan(plan);
@@ -674,25 +699,19 @@ export const PlannerScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
                 </View>
             </View>
 
-            {/* AI Status Indicator */}
+            {/* AI Status Indicator - Gemini */}
             <View style={[styles.aiStatusBar, { 
-                backgroundColor: aiStatus === 'connected' || aiStatus === 'idle' ? '#22C55E20' : 
-                                 aiStatus === 'error' || aiStatus === 'fallback' ? '#EF444420' : 
-                                 '#6366F120' 
+                backgroundColor: isGeminiConfigured() ? '#22C55E20' : '#EF444420' 
             }]}>
                 <View style={[styles.aiStatusDot, { 
-                    backgroundColor: aiStatus === 'connected' || aiStatus === 'idle' ? '#22C55E' : 
-                                     aiStatus === 'error' || aiStatus === 'fallback' ? '#EF4444' : 
-                                     '#6366F1' 
+                    backgroundColor: isGeminiConfigured() ? '#22C55E' : '#EF4444'
                 }]} />
                 <Text style={[styles.aiStatusText, { 
-                    color: aiStatus === 'connected' || aiStatus === 'idle' ? '#22C55E' : 
-                           aiStatus === 'error' || aiStatus === 'fallback' ? '#EF4444' : 
-                           '#6366F1' 
+                    color: isGeminiConfigured() ? '#22C55E' : '#EF4444'
                 }]}>
                     {aiMessage}
                 </Text>
-                {(aiStatus === 'connecting' || aiStatus === 'generating') && (
+                {generatingPlan && (
                     <ActivityIndicator size="small" color="#6366F1" style={{ marginLeft: 8 }} />
                 )}
             </View>
@@ -870,9 +889,19 @@ export const PlannerScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
                                 keyboardType="number-pad"
                                 placeholder="1-30 days"
                                 placeholderTextColor={theme.colors.placeholder}
-                                style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, backgroundColor: theme.colors.backgroundSecondary }]}
+                                style={[
+                                    styles.input,
+                                    {
+                                        borderColor: formErrors.days ? '#EF4444' : theme.colors.border,
+                                        color: theme.colors.text,
+                                        backgroundColor: theme.colors.backgroundSecondary,
+                                    },
+                                ]}
                                 maxLength={2}
                             />
+                            {formErrors.days && (
+                                <Text style={[styles.errorText, { color: '#EF4444' }]}>{formErrors.days}</Text>
+                            )}
 
                             {/* Budget */}
                             <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Budget (LKR) *</Text>
@@ -882,8 +911,18 @@ export const PlannerScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
                                 keyboardType="decimal-pad"
                                 placeholder="e.g. 150000"
                                 placeholderTextColor={theme.colors.placeholder}
-                                style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, backgroundColor: theme.colors.backgroundSecondary }]}
+                                style={[
+                                    styles.input,
+                                    {
+                                        borderColor: formErrors.budget ? '#EF4444' : theme.colors.border,
+                                        color: theme.colors.text,
+                                        backgroundColor: theme.colors.backgroundSecondary,
+                                    },
+                                ]}
                             />
+                            {formErrors.budget && (
+                                <Text style={[styles.errorText, { color: '#EF4444' }]}>{formErrors.budget}</Text>
+                            )}
 
                             {/* Number of Travelers */}
                             <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Number of Travelers *</Text>
@@ -893,12 +932,25 @@ export const PlannerScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
                                 keyboardType="number-pad"
                                 placeholder="1"
                                 placeholderTextColor={theme.colors.placeholder}
-                                style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, backgroundColor: theme.colors.backgroundSecondary }]}
+                                style={[
+                                    styles.input,
+                                    {
+                                        borderColor: formErrors.travelers ? '#EF4444' : theme.colors.border,
+                                        color: theme.colors.text,
+                                        backgroundColor: theme.colors.backgroundSecondary,
+                                    },
+                                ]}
                                 maxLength={2}
                             />
+                            {formErrors.travelers && (
+                                <Text style={[styles.errorText, { color: '#EF4444' }]}>{formErrors.travelers}</Text>
+                            )}
 
                             {/* Travel Type */}
                             <OptionSelector title="Travel Type" options={TRAVEL_TYPES} value={travelType} onChange={setTravelType} />
+                            {formErrors.travelType && (
+                                <Text style={[styles.errorText, { color: '#EF4444' }]}>{formErrors.travelType}</Text>
+                            )}
 
                             {/* Room Type */}
                             <OptionSelector title="Room Type" options={ROOM_TYPES} value={roomType} onChange={setRoomType} />
@@ -1327,6 +1379,7 @@ const styles = StyleSheet.create({
     modalTitle: { fontSize: 20, fontWeight: '800' },
     label: { fontSize: 13, fontWeight: '600', marginBottom: 6, marginTop: 12 },
     input: { height: 48, borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 14, fontSize: 16 },
+    errorText: { fontSize: 11, marginTop: 2, marginBottom: 8, fontWeight: '500' },
     modalBtns: { flexDirection: 'row', gap: 12, marginTop: 20 },
 
     // Search

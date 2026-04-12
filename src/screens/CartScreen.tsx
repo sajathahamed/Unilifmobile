@@ -6,6 +6,7 @@ import {
   FlatList,
   TouchableOpacity,
   Alert,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '@theme/index';
@@ -21,6 +22,7 @@ import { FoodStall } from '@app-types/database';
 import { Ionicons } from '@expo/vector-icons';
 import { sendDialogSms } from '@services/smsService';
 import { Input } from '@components/ui/Input';
+import { validateFoodOrder, getErrorMessage } from '@utils/validationUtils';
 
 export type CartScreenProps = NativeStackScreenProps<AppStackParamList, 'Cart'>;
 
@@ -30,6 +32,9 @@ export const CartScreen: React.FC<CartScreenProps> = ({ navigation }) => {
   const { userProfile } = useAuth();
   const [loading, setLoading] = useState(false);
   const [phone, setPhone] = useState('');
+   const [specialNotes, setSpecialNotes] = useState('');
+   const [deliveryMethod, setDeliveryMethod] = useState<'pickup' | 'delivery'>('delivery');
+   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [stall, setStall] = useState<FoodStall | null>(null);
 
   const loadStall = useCallback(async () => {
@@ -48,11 +53,15 @@ export const CartScreen: React.FC<CartScreenProps> = ({ navigation }) => {
 
   const handleCheckout = async () => {
     if (!userProfile?.id || cartItems.length === 0) return;
-    
-    if (!phone || phone.length < 9) {
-      Alert.alert('Phone Required', 'Please enter a valid phone number for order updates.');
-      return;
-    }
+     // Validate form with comprehensive validation
+     const validation = validateFoodOrder(cartItems, phone, specialNotes, deliveryMethod);
+     if (!validation.valid) {
+       setFormErrors(validation.errors);
+       const errorMessage = getErrorMessage(validation.errors);
+       Alert.alert('Validation Error', errorMessage);
+       return;
+     }
+     setFormErrors({});
 
     // All items must be from same vendor
     const vendorId = cartItems[0].vendorId;
@@ -102,7 +111,8 @@ export const CartScreen: React.FC<CartScreenProps> = ({ navigation }) => {
 
     // Send SMS Confirmation
     try {
-      const smsMsg = `Hi ${userProfile.name}, your order from ${vendorName} has been confirmed! Ref: FO-${orderData.id}. Total: RM ${totalAmount.toFixed(2)}.`;
+      const deliveryText = deliveryMethod === 'delivery' ? 'Delivery' : 'Pickup';
+      const smsMsg = `Hi ${userProfile.name}, your order from ${vendorName} (${deliveryText}) has been confirmed! Ref: FO-${orderData.id}. Total: RS ${totalAmount.toFixed(2)}.`;
       await sendDialogSms([phone], smsMsg);
     } catch (e) {
       console.error('Failed to send order confirmation SMS:', e);
@@ -167,7 +177,7 @@ export const CartScreen: React.FC<CartScreenProps> = ({ navigation }) => {
                 <View style={styles.flex}>
                   <Text style={[styles.itemName, { color: theme.colors.text }]}>{item.name}</Text>
                   <Text style={[styles.itemPrice, { color: theme.colors.primary }]}>
-                    RM {(item.price * item.quantity).toFixed(2)}
+                    RS {(item.price * item.quantity).toFixed(2)}
                   </Text>
                 </View>
                 <View style={styles.qtyRow}>
@@ -197,8 +207,72 @@ export const CartScreen: React.FC<CartScreenProps> = ({ navigation }) => {
           ListFooterComponent={() => (
             <View style={{ gap: 12, marginTop: 12 }}>
               <Card elevation="sm" border={false} padded={false}>
-                 <View style={styles.checkoutForm}>
-                    <Text style={[styles.formTitle, { color: theme.colors.text }]}>Contact Information</Text>
+                  <View style={styles.checkoutForm}>
+                    <Text style={[styles.formTitle, { color: theme.colors.text }]}>Order Details</Text>
+
+                    {/* Delivery Method Selection */}
+                    <Text style={[styles.fieldLabel, { color: theme.colors.text, marginBottom: 8 }]}>
+                      Delivery Method *
+                    </Text>
+                    <View style={styles.deliveryOptions}>
+                      <TouchableOpacity
+                        style={[
+                          styles.deliveryBtn,
+                          {
+                            backgroundColor: deliveryMethod === 'pickup' ? theme.colors.primary : theme.colors.backgroundSecondary,
+                            borderColor: formErrors.deliveryMethod ? '#EF4444' : 'transparent',
+                          },
+                        ]}
+                        onPress={() => setDeliveryMethod('pickup')}
+                      >
+                        <Ionicons
+                          name="bag-check-outline"
+                          size={20}
+                          color={deliveryMethod === 'pickup' ? '#fff' : theme.colors.text}
+                        />
+                        <Text
+                          style={[
+                            styles.deliveryBtnText,
+                            { color: deliveryMethod === 'pickup' ? '#fff' : theme.colors.text },
+                          ]}
+                        >
+                          Pickup
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.deliveryBtn,
+                          {
+                            backgroundColor: deliveryMethod === 'delivery' ? theme.colors.primary : theme.colors.backgroundSecondary,
+                            borderColor: formErrors.deliveryMethod ? '#EF4444' : 'transparent',
+                          },
+                        ]}
+                        onPress={() => setDeliveryMethod('delivery')}
+                      >
+                        <Ionicons
+                          name="bicycle-outline"
+                          size={20}
+                          color={deliveryMethod === 'delivery' ? '#fff' : theme.colors.text}
+                        />
+                        <Text
+                          style={[
+                            styles.deliveryBtnText,
+                            { color: deliveryMethod === 'delivery' ? '#fff' : theme.colors.text },
+                          ]}
+                        >
+                          Delivery
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    {formErrors.deliveryMethod && (
+                      <Text style={[styles.errorText, { color: '#EF4444' }]}>{formErrors.deliveryMethod}</Text>
+                    )}
+
+                    {/* Phone Number Input */}
+                    <Text style={[styles.fieldLabel, { color: theme.colors.text, marginTop: 16, marginBottom: 8 }]}>
+                      Phone Number *
+                    </Text>
                     <Input
                       label="Phone Number for Updates"
                       placeholder="e.g. 0771234567"
@@ -207,14 +281,45 @@ export const CartScreen: React.FC<CartScreenProps> = ({ navigation }) => {
                       keyboardType="phone-pad"
                       leftElement={<Ionicons name="call-outline" size={18} color={theme.colors.textTertiary} />}
                     />
-                 </View>
+                    {formErrors.phone && (
+                      <Text style={[styles.errorText, { color: '#EF4444' }]}>{formErrors.phone}</Text>
+                    )}
+
+                    {/* Special Notes */}
+                    <Text style={[styles.fieldLabel, { color: theme.colors.text, marginTop: 16, marginBottom: 8 }]}>
+                      Special Instructions (Optional)
+                    </Text>
+                    <TextInput
+                      placeholder="e.g. Extra spicy, no onions, etc."
+                      placeholderTextColor={theme.colors.placeholder}
+                      value={specialNotes}
+                      onChangeText={setSpecialNotes}
+                      maxLength={500}
+                      multiline
+                      numberOfLines={3}
+                      style={[
+                        styles.notesInput,
+                        {
+                          color: theme.colors.text,
+                          backgroundColor: theme.colors.backgroundSecondary,
+                          borderColor: formErrors.specialNotes ? '#EF4444' : theme.colors.border,
+                        },
+                      ]}
+                    />
+                    <Text style={[styles.charCount, { color: theme.colors.textSecondary }]}>
+                      {specialNotes.length}/500
+                    </Text>
+                    {formErrors.specialNotes && (
+                      <Text style={[styles.errorText, { color: '#EF4444' }]}>{formErrors.specialNotes}</Text>
+                    )}
+                  </View>
               </Card>
 
               <Card elevation="md" border={false} style={styles.totalCard}>
                 <View style={[styles.row, { justifyContent: 'space-between' }]}>
                   <Text style={[styles.totalLabel, { color: theme.colors.text }]}>Order Total</Text>
                   <Text style={[styles.totalAmount, { color: theme.colors.primary }]}>
-                    RM {totalAmount.toFixed(2)}
+                    RS {totalAmount.toFixed(2)}
                   </Text>
                 </View>
                 <View style={{ height: 20 }} />
@@ -262,6 +367,29 @@ const styles = StyleSheet.create({
   qty: { fontSize: 16, fontWeight: '800', minWidth: 24, textAlign: 'center' },
   checkoutForm: { padding: 16 },
   formTitle: { fontSize: 14, fontWeight: '800', marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 },
+   fieldLabel: { fontSize: 14, fontWeight: '700' },
+   errorText: { fontSize: 11, marginTop: 4, marginBottom: 8, fontWeight: '500' },
+   charCount: { fontSize: 11, marginTop: 4, marginBottom: 8, textAlign: 'right' },
+   deliveryOptions: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+   deliveryBtn: {
+     flex: 1,
+     flexDirection: 'row',
+     alignItems: 'center',
+     justifyContent: 'center',
+     gap: 8,
+     paddingVertical: 12,
+     borderRadius: 12,
+     borderWidth: 1.5,
+   },
+   deliveryBtnText: { fontSize: 14, fontWeight: '600' },
+   notesInput: {
+     padding: 12,
+     borderWidth: 1.5,
+     borderRadius: 10,
+     fontSize: 14,
+     height: 80,
+     textAlignVertical: 'top',
+   },
   totalCard: { padding: 20, borderRadius: 24 },
   totalLabel: { fontSize: 18, fontWeight: '700' },
   totalAmount: { fontSize: 26, fontWeight: '800' },

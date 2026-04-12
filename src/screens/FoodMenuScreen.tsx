@@ -187,7 +187,7 @@ export const FoodMenuScreen: React.FC<FoodMenuScreenProps> = ({ route, navigatio
                       {item.name}
                     </Text>
                     <Text style={[styles.price, { color: theme.colors.text }]}>
-                      RM {Number(item.price ?? 0).toFixed(2)}
+                      RS {Number(item.price ?? 0).toFixed(2)}
                     </Text>
                   </View>
                   <View style={styles.actionColumn}>
@@ -244,7 +244,7 @@ export const FoodMenuScreen: React.FC<FoodMenuScreenProps> = ({ route, navigatio
               </View>
               <Text style={styles.cartBtnText}>View your cart</Text>
               <Text style={styles.cartBtnTotal}>
-                RM{' '}
+                RS{' '}
                 {cartItems.reduce((acc, item) => acc + item.price * item.quantity, 0).toFixed(2)}
               </Text>
             </View>

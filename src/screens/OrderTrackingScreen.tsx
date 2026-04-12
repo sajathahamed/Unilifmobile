@@ -96,7 +96,7 @@ export const OrderTrackingScreen: React.FC<OrderTrackingScreenProps> = ({ route 
                             {(order as any).vendors?.name || 'Vendor'}
                         </Text>
                         <Text style={[styles.amount, { color: theme.colors.primary }]}>
-                            RM {Number(order.total ?? 0).toFixed(2)}
+                            RS {Number(order.total ?? 0).toFixed(2)}
                         </Text>
                         {(order as any).uber_order_id && (
                             <Text style={[styles.trackingId, { color: theme.colors.textSecondary }]}>

@@ -52,7 +52,7 @@ export const SignupScreen: React.FC<SignupScreenProps> = ({ navigation }) => {
               <View style={{ height: 24 }} />
               <Input
                 label="Full Name"
-                placeholder="Jane Doe"
+                placeholder="Aravinch Sami"
                 value={name}
                 onChangeText={setName}
               />

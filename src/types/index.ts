@@ -45,6 +45,7 @@ export type AppStackParamList = {
   Timetable: undefined;
   DeliveryAdminLogin: undefined;
   DeliveryAdminDashboard: undefined;
+  DeliveryAssignments: undefined;
   DeliveryPersonLogin: undefined;
   DeliveryPersonDashboard: undefined;
 };

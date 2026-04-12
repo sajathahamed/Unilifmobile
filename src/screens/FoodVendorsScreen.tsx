@@ -134,7 +134,7 @@ export const FoodVendorsScreen: React.FC = () => {
                               </View>
                             )}
                             <Text style={[styles.previewText, { color: theme.colors.text }]} numberOfLines={1}>{food.name}</Text>
-                            <Text style={[styles.previewPrice, { color: theme.colors.textTertiary }]} numberOfLines={1}>RM {Number(food.price||0).toFixed(2)}</Text>
+                            <Text style={[styles.previewPrice, { color: theme.colors.textTertiary }]} numberOfLines={1}>RS {Number(food.price||0).toFixed(2)}</Text>
                           </View>
                         ))}
                       </View>

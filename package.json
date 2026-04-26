@@ -7,7 +7,10 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "pw:test": "playwright test",
+    "pw:headed": "playwright test --headed",
+    "pw:report": "playwright show-report"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.2.3",
@@ -50,6 +53,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
+    "@playwright/test": "^1.59.1",
     "@types/node": "^20.11.24",
     "@types/react": "~18.2.79",
     "babel-plugin-module-resolver": "^5.0.0",

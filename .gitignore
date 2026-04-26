@@ -26,6 +26,8 @@ metro-cache/
 # Build output
 build/
 dist/
+playwright-report/
+test-results/
 
 # OS files
 .DS_Store
